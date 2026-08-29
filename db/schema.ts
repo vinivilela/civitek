@@ -23,6 +23,33 @@ export const projects = sqliteTable(
   ],
 );
 
+export const projectBaselines = sqliteTable('project_baselines', {
+  projectId: text('project_id')
+    .primaryKey()
+    .references(() => projects.id),
+  pilotStartedAt: text('pilot_started_at').notNull(),
+  currentStage: text('current_stage').notNull(),
+  summary: text('summary').notNull(),
+  responsibleEngineer: text('responsible_engineer'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
+export const projectEvents = sqliteTable(
+  'project_events',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id),
+    actor: text('actor').notNull(),
+    action: text('action').notNull(),
+    detail: text('detail'),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => [index('project_events_project_idx').on(table.projectId)],
+);
+
 export const phoneAssignments = sqliteTable(
   'phone_assignments',
   {

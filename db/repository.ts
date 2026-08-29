@@ -7,6 +7,8 @@ import {
   evidences,
   occurrences,
   phoneAssignments,
+  projectBaselines,
+  projectEvents,
   projects,
   whatsappMessages,
 } from './schema';
@@ -51,6 +53,24 @@ export type ProjectView = {
   occurrenceCount: number;
   openCount: number;
   highSeverityCount: number;
+  pilotStartedAt: string | null;
+  currentStage: string | null;
+  baselineSummary: string | null;
+  responsibleEngineer: string | null;
+  baselineUpdatedAt: string | null;
+};
+
+export type ProjectHistoryItemView = {
+  id: string;
+  type: 'baseline' | 'occurrence' | 'status' | 'compliance';
+  title: string;
+  description: string | null;
+  actor: string;
+  projectId: string | null;
+  projectName: string | null;
+  occurrenceId: string | null;
+  occurrenceCode: string | null;
+  createdAt: string;
 };
 
 export type ProjectUpdateView = {
@@ -152,8 +172,14 @@ export async function listProjects(): Promise<ProjectView[]> {
       name: projects.name,
       address: projects.address,
       status: projects.status,
+      pilotStartedAt: projectBaselines.pilotStartedAt,
+      currentStage: projectBaselines.currentStage,
+      baselineSummary: projectBaselines.summary,
+      responsibleEngineer: projectBaselines.responsibleEngineer,
+      baselineUpdatedAt: projectBaselines.updatedAt,
     })
-    .from(projects);
+    .from(projects)
+    .leftJoin(projectBaselines, eq(projects.id, projectBaselines.projectId));
   const occurrenceRows = await db
     .select({
       projectId: occurrences.projectId,
@@ -177,6 +203,58 @@ export async function listProjects(): Promise<ProjectView[]> {
           occurrence.severity === 'high' && occurrence.status !== 'closed',
       ).length,
     };
+  });
+}
+
+export async function updateProjectBaseline(
+  projectId: string,
+  input: {
+    pilotStartedAt: string;
+    currentStage: string;
+    summary: string;
+    responsibleEngineer: string | null;
+  },
+) {
+  await ensureDatabase();
+  const db = getDb();
+  const projectRows = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(eq(projects.id, projectId))
+    .limit(1);
+
+  if (!projectRows[0]) throw new Error('Obra não encontrada.');
+
+  const now = new Date().toISOString();
+  await db
+    .insert(projectBaselines)
+    .values({
+      projectId,
+      pilotStartedAt: input.pilotStartedAt,
+      currentStage: input.currentStage,
+      summary: input.summary,
+      responsibleEngineer: input.responsibleEngineer,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: projectBaselines.projectId,
+      set: {
+        pilotStartedAt: input.pilotStartedAt,
+        currentStage: input.currentStage,
+        summary: input.summary,
+        responsibleEngineer: input.responsibleEngineer,
+        updatedAt: now,
+      },
+    });
+
+  await db.insert(projectEvents).values({
+    id: crypto.randomUUID(),
+    projectId,
+    actor: 'Equipe de engenharia',
+    action: 'project.baseline.updated',
+    detail: `Etapa: ${input.currentStage}. ${input.summary}`,
+    createdAt: now,
   });
 }
 
@@ -235,6 +313,104 @@ export async function listProjectUpdates(): Promise<ProjectUpdateView[]> {
       evidenceUrl: storedEvidence ? `/api/evidence/${storedEvidence.id}` : null,
     };
   });
+}
+
+export async function listProjectHistory(): Promise<ProjectHistoryItemView[]> {
+  await ensureDatabase();
+  const db = getDb();
+  const occurrenceRows = await db
+    .select({
+      id: occurrences.id,
+      code: occurrences.code,
+      title: occurrences.title,
+      reporterName: occurrences.reporterName,
+      projectId: occurrences.projectId,
+      projectName: projects.name,
+      createdAt: occurrences.createdAt,
+    })
+    .from(occurrences)
+    .leftJoin(projects, eq(occurrences.projectId, projects.id));
+  const auditRows = await db
+    .select({
+      id: auditEvents.id,
+      action: auditEvents.action,
+      detail: auditEvents.detail,
+      actor: auditEvents.actor,
+      createdAt: auditEvents.createdAt,
+      occurrenceId: occurrences.id,
+      occurrenceCode: occurrences.code,
+      occurrenceTitle: occurrences.title,
+      projectId: occurrences.projectId,
+      projectName: projects.name,
+    })
+    .from(auditEvents)
+    .innerJoin(occurrences, eq(auditEvents.occurrenceId, occurrences.id))
+    .leftJoin(projects, eq(occurrences.projectId, projects.id));
+  const projectEventRows = await db
+    .select({
+      id: projectEvents.id,
+      action: projectEvents.action,
+      detail: projectEvents.detail,
+      actor: projectEvents.actor,
+      projectId: projectEvents.projectId,
+      projectName: projects.name,
+      createdAt: projectEvents.createdAt,
+    })
+    .from(projectEvents)
+    .innerJoin(projects, eq(projectEvents.projectId, projects.id));
+
+  const occurrenceItems: ProjectHistoryItemView[] = occurrenceRows.map(
+    (row) => ({
+      id: `occurrence-${row.id}`,
+      type: 'occurrence',
+      title: `${row.code} registrada`,
+      description: row.title,
+      actor: row.reporterName,
+      projectId: row.projectId,
+      projectName: row.projectName,
+      occurrenceId: row.id,
+      occurrenceCode: row.code,
+      createdAt: row.createdAt,
+    }),
+  );
+  const auditItems: ProjectHistoryItemView[] = auditRows
+    .filter((row) => row.action !== 'occurrence.created')
+    .map((row) => {
+      const copy = getAuditEventCopy(row.action);
+      return {
+        id: row.id,
+        type: copy.type,
+        title: copy.title,
+        description: row.detail || row.occurrenceTitle,
+        actor: getActorLabel(row.actor),
+        projectId: row.projectId,
+        projectName: row.projectName,
+        occurrenceId: row.occurrenceId,
+        occurrenceCode: row.occurrenceCode,
+        createdAt: row.createdAt,
+      };
+    });
+  const projectItems: ProjectHistoryItemView[] = projectEventRows.map(
+    (row) => ({
+      id: row.id,
+      type: 'baseline',
+      title:
+        row.action === 'project.baseline.created'
+          ? 'Marco zero registrado'
+          : 'Marco zero atualizado',
+      description: row.detail,
+      actor: row.actor,
+      projectId: row.projectId,
+      projectName: row.projectName,
+      occurrenceId: null,
+      occurrenceCode: null,
+      createdAt: row.createdAt,
+    }),
+  );
+
+  return [...occurrenceItems, ...auditItems, ...projectItems].sort((a, b) =>
+    b.createdAt.localeCompare(a.createdAt),
+  );
 }
 
 export async function getEvidenceObjectKey(id: string) {
@@ -470,6 +646,33 @@ export async function updateComplianceCheck(
     detail: engineerNote?.trim() || null,
     createdAt: now,
   });
+}
+
+function getAuditEventCopy(action: string): {
+  type: 'status' | 'compliance';
+  title: string;
+} {
+  const titles: Record<string, string> = {
+    'occurrence.status.new': 'Ocorrência reaberta',
+    'occurrence.status.in_progress': 'Tratamento iniciado',
+    'occurrence.status.validation': 'Enviada para validação',
+    'occurrence.status.closed': 'Ocorrência encerrada',
+    'compliance.pending': 'Conformidade marcada como pendente',
+    'compliance.compliant': 'Conformidade validada',
+    'compliance.non_compliant': 'Não conformidade confirmada',
+    'compliance.not_applicable': 'Requisito marcado como não aplicável',
+  };
+  return {
+    type: action.startsWith('compliance.') ? 'compliance' : 'status',
+    title: titles[action] ?? 'Histórico atualizado',
+  };
+}
+
+function getActorLabel(actor: string) {
+  if (actor === 'dashboard-engineer') return 'Engenharia';
+  if (actor === 'dashboard-user') return 'Equipe CiviTek';
+  if (actor === 'whatsapp-webhook') return 'WhatsApp';
+  return actor;
 }
 
 function classifyOccurrence(text: string) {

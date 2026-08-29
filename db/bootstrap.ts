@@ -27,6 +27,26 @@ async function initializeDatabase() {
     database.prepare(
       'CREATE UNIQUE INDEX IF NOT EXISTS projects_company_code_unique ON projects (company_id, code)',
     ),
+    database.prepare(`CREATE TABLE IF NOT EXISTS project_baselines (
+      project_id TEXT PRIMARY KEY NOT NULL REFERENCES projects(id),
+      pilot_started_at TEXT NOT NULL,
+      current_stage TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      responsible_engineer TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`),
+    database.prepare(`CREATE TABLE IF NOT EXISTS project_events (
+      id TEXT PRIMARY KEY NOT NULL,
+      project_id TEXT NOT NULL REFERENCES projects(id),
+      actor TEXT NOT NULL,
+      action TEXT NOT NULL,
+      detail TEXT,
+      created_at TEXT NOT NULL
+    )`),
+    database.prepare(
+      'CREATE INDEX IF NOT EXISTS project_events_project_idx ON project_events (project_id)',
+    ),
     database.prepare(`CREATE TABLE IF NOT EXISTS phone_assignments (
       id TEXT PRIMARY KEY NOT NULL,
       phone_e164 TEXT NOT NULL,
@@ -177,6 +197,64 @@ async function seedDemoData(database: D1Database) {
         'Carlos Santos',
         'project-aurora',
         1,
+        createdAt,
+      ),
+    database
+      .prepare(
+        `INSERT OR IGNORE INTO project_baselines
+          (project_id, pilot_started_at, current_stage, summary, responsible_engineer, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        'project-aurora',
+        '2026-08-01',
+        'Acabamentos',
+        'Piloto iniciado com foco no registro de impermeabilização, instalações e acabamento pelo WhatsApp.',
+        'Marina Costa',
+        createdAt,
+        createdAt,
+      ),
+    database
+      .prepare(
+        `INSERT OR IGNORE INTO project_events
+          (id, project_id, actor, action, detail, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        'event-baseline-aurora',
+        'project-aurora',
+        'Equipe CiviTek',
+        'project.baseline.created',
+        'Etapa: Acabamentos. Piloto iniciado com foco no registro de impermeabilização, instalações e acabamento pelo WhatsApp.',
+        createdAt,
+      ),
+    database
+      .prepare(
+        `INSERT OR IGNORE INTO project_events
+          (id, project_id, actor, action, detail, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        'event-baseline-horizonte',
+        'project-horizonte',
+        'Equipe CiviTek',
+        'project.baseline.created',
+        'Etapa: Instalações. Marco inicial do acompanhamento de segurança, instalações e inspeções de qualidade da obra.',
+        createdAt,
+      ),
+    database
+      .prepare(
+        `INSERT OR IGNORE INTO project_baselines
+          (project_id, pilot_started_at, current_stage, summary, responsible_engineer, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        'project-horizonte',
+        '2026-08-12',
+        'Instalações',
+        'Marco inicial do acompanhamento de segurança, instalações e inspeções de qualidade da obra.',
+        'Lucas Almeida',
+        createdAt,
         createdAt,
       ),
     database

@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import {
-  Activity,
   AudioLines,
   BookOpenCheck,
   BriefcaseBusiness,
@@ -17,14 +16,19 @@ import {
   Clock3,
   FileText,
   HardHat,
+  History,
   ImageIcon,
   LayoutDashboard,
   LoaderCircle,
   MessageCircleMore,
-  MessagesSquare,
+  Milestone,
+  Pencil,
+  Save,
   Search,
   ShieldCheck,
   SlidersHorizontal,
+  TrendingUp,
+  X,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -36,6 +40,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import {
   NativeSelect,
   NativeSelectOption,
@@ -97,6 +102,24 @@ type Project = {
   occurrenceCount: number;
   openCount: number;
   highSeverityCount: number;
+  pilotStartedAt: string | null;
+  currentStage: string | null;
+  baselineSummary: string | null;
+  responsibleEngineer: string | null;
+  baselineUpdatedAt: string | null;
+};
+
+type ProjectHistoryItem = {
+  id: string;
+  type: 'baseline' | 'occurrence' | 'status' | 'compliance';
+  title: string;
+  description: string | null;
+  actor: string;
+  projectId: string | null;
+  projectName: string | null;
+  occurrenceId: string | null;
+  occurrenceCode: string | null;
+  createdAt: string;
 };
 
 type ProjectUpdate = {
@@ -152,6 +175,7 @@ export default function Dashboard() {
   const [occurrences, setOccurrences] = useState<Occurrence[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [updates, setUpdates] = useState<ProjectUpdate[]>([]);
+  const [history, setHistory] = useState<ProjectHistoryItem[]>([]);
   const [integration, setIntegration] = useState<IntegrationStatus | null>(
     null,
   );
@@ -167,6 +191,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [updatingOccurrence, setUpdatingOccurrence] = useState(false);
   const [updatingCheckId, setUpdatingCheckId] = useState<string | null>(null);
+  const [savingBaseline, setSavingBaseline] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
   async function loadOccurrences(preferredId?: string) {
@@ -191,8 +216,19 @@ export default function Dashboard() {
     const response = await fetch('/api/updates', { cache: 'no-store' });
     if (!response.ok)
       throw new Error('Não foi possível carregar as atualizações da obra.');
-    const data = (await response.json()) as { updates: ProjectUpdate[] };
+    const data = (await response.json()) as {
+      updates: ProjectUpdate[];
+      history: ProjectHistoryItem[];
+    };
     setUpdates(data.updates);
+    setHistory(data.history);
+  }
+
+  async function loadProjects() {
+    const response = await fetch('/api/projects', { cache: 'no-store' });
+    if (!response.ok) throw new Error('Não foi possível carregar as obras.');
+    const data = (await response.json()) as { projects: Project[] };
+    setProjects(data.projects);
   }
 
   useEffect(() => {
@@ -200,12 +236,7 @@ export default function Dashboard() {
       Promise.all([
         loadOccurrences(),
         loadUpdates(),
-        fetch('/api/projects', { cache: 'no-store' }).then(async (response) => {
-          if (!response.ok)
-            throw new Error('Não foi possível carregar as obras.');
-          const data = (await response.json()) as { projects: Project[] };
-          setProjects(data.projects);
-        }),
+        loadProjects(),
         fetch('/api/integration-status', { cache: 'no-store' }).then(
           async (response) => {
             if (!response.ok)
@@ -272,6 +303,11 @@ export default function Dashboard() {
       (updateType === 'all' || item.messageType === updateType)
     );
   });
+  const filteredHistory = history.filter((item) =>
+    role === 'engineer'
+      ? item.projectId === selectedProjectId
+      : updatesProjectId === 'all' || item.projectId === updatesProjectId,
+  );
   const filteredOccurrences = roleOccurrences.filter((occurrence) => {
     const normalized = query.toLocaleLowerCase('pt-BR').trim();
     if (!normalized) return true;
@@ -339,6 +375,36 @@ export default function Dashboard() {
       setNotice(error instanceof Error ? error.message : 'Falha ao atualizar.');
     } finally {
       setUpdatingCheckId(null);
+    }
+  }
+
+  async function saveProjectBaseline(
+    projectId: string,
+    input: {
+      pilotStartedAt: string;
+      currentStage: string;
+      summary: string;
+      responsibleEngineer: string;
+    },
+  ) {
+    setSavingBaseline(true);
+    setNotice(null);
+    try {
+      const response = await fetch('/api/projects/' + projectId, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok)
+        throw new Error(data.error ?? 'Não foi possível salvar o marco zero.');
+      await Promise.all([loadProjects(), loadUpdates()]);
+      setNotice('Marco zero da obra atualizado e registrado no histórico.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Falha ao atualizar.');
+      throw error;
+    } finally {
+      setSavingBaseline(false);
     }
   }
 
@@ -488,14 +554,18 @@ export default function Dashboard() {
           )}
           {activeView === 'updates' && (
             <UpdatesView
+              history={filteredHistory}
               integration={integration}
               loading={loading}
               openOccurrence={openOccurrence}
+              occurrences={occurrences}
               projectId={
                 role === 'engineer' ? selectedProjectId : updatesProjectId
               }
               projects={projects}
               role={role}
+              saveBaseline={saveProjectBaseline}
+              savingBaseline={savingBaseline}
               setProjectId={setUpdatesProjectId}
               setUpdateType={setUpdateType}
               updateType={updateType}
@@ -1276,7 +1346,7 @@ function ProjectsView({
     <div className="py-5">
       <p className="mb-5 max-w-2xl text-sm leading-relaxed text-muted-foreground">
         Visão compacta do portfólio. Abra uma obra para acessar ocorrências ou
-        veja diretamente as atualizações recebidas do campo.
+        consulte seu marco zero e histórico permanente.
       </p>
       <div className="grid gap-4 md:grid-cols-2">
         {projects.map((project) => {
@@ -1326,7 +1396,7 @@ function ProjectsView({
                     variant="outline"
                     onClick={() => openUpdates(project.id)}
                   >
-                    Atualizações
+                    Histórico
                   </Button>
                 </div>
               </CardContent>
@@ -1627,34 +1697,54 @@ function NormRow({
 }
 
 function UpdatesView({
+  history,
   integration,
   loading,
   openOccurrence,
+  occurrences,
   projectId,
   projects,
   role,
+  saveBaseline,
+  savingBaseline,
   setProjectId,
   setUpdateType,
   updateType,
   updates,
 }: {
+  history: ProjectHistoryItem[];
   integration: IntegrationStatus | null;
   loading: boolean;
   openOccurrence: (id: string) => void;
+  occurrences: Occurrence[];
   projectId: string;
   projects: Project[];
   role: Role;
+  saveBaseline: (
+    projectId: string,
+    input: {
+      pilotStartedAt: string;
+      currentStage: string;
+      summary: string;
+      responsibleEngineer: string;
+    },
+  ) => Promise<void>;
+  savingBaseline: boolean;
   setProjectId: (id: string) => void;
   setUpdateType: (type: UpdateType) => void;
   updateType: UpdateType;
   updates: ProjectUpdate[];
 }) {
+  const selectedProject = projects.find((project) => project.id === projectId);
+  const selectedOccurrences = occurrences.filter(
+    (occurrence) => projectId === 'all' || occurrence.projectId === projectId,
+  );
   return (
     <>
       <div className="flex flex-col gap-4 py-5 xl:flex-row xl:items-end xl:justify-between">
         <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          Histórico único das mensagens recebidas e enviadas pelo WhatsApp,
-          sempre vinculado à obra e à ocorrência correspondente.
+          O marco inicial, as decisões técnicas e os relatos do WhatsApp ficam
+          reunidos em uma memória permanente de cada obra.
         </p>
         <div className="flex flex-col gap-2 sm:flex-row">
           {role === 'manager' && (
@@ -1662,7 +1752,7 @@ function UpdatesView({
               className="w-full sm:w-52"
               value={projectId}
               onChange={(event) => setProjectId(event.target.value)}
-              aria-label="Filtrar atualizações por obra"
+              aria-label="Filtrar histórico por obra"
             >
               <NativeSelectOption value="all">
                 Todas as obras
@@ -1692,7 +1782,21 @@ function UpdatesView({
         </div>
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1.45fr)_minmax(300px,0.75fr)]">
+        {selectedProject ? (
+          <ProjectBaselineCard
+            key={selectedProject.id}
+            project={selectedProject}
+            saveBaseline={saveBaseline}
+            saving={savingBaseline}
+          />
+        ) : (
+          <PortfolioPilotCard projects={projects} />
+        )}
+        <ProjectInsights occurrences={selectedOccurrences} />
+      </div>
+
+      <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
         <Card>
           <CardHeader className="border-b">
             <div className="flex items-start justify-between gap-3">
@@ -1728,33 +1832,358 @@ function UpdatesView({
           </CardContent>
         </Card>
 
-        <Card className="self-start">
-          <CardHeader>
-            <CardTitle className="text-lg">Como o canal organiza</CardTitle>
-            <CardDescription>
-              O pedreiro continua usando somente o WhatsApp.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <FlowStep
-              icon={<MessageCircleMore />}
-              title="Telefone identifica a obra"
-              description="O número cadastrado direciona a mensagem ao projeto correto."
-            />
-            <FlowStep
-              icon={<Activity />}
-              title="Conteúdo vira histórico"
-              description="Texto, foto e áudio ficam juntos na ocorrência."
-            />
-            <FlowStep
-              icon={<ShieldCheck />}
-              title="Engenharia responde"
-              description="Protocolo ou pedido de complemento volta pelo WhatsApp."
-            />
-          </CardContent>
-        </Card>
+        <ProjectHistoryTimeline
+          history={history}
+          loading={loading}
+          openOccurrence={openOccurrence}
+        />
       </div>
     </>
+  );
+}
+
+function ProjectBaselineCard({
+  project,
+  saveBaseline,
+  saving,
+}: {
+  project: Project;
+  saveBaseline: (
+    projectId: string,
+    input: {
+      pilotStartedAt: string;
+      currentStage: string;
+      summary: string;
+      responsibleEngineer: string;
+    },
+  ) => Promise<void>;
+  saving: boolean;
+}) {
+  const hasBaseline = Boolean(project.pilotStartedAt);
+  const [editing, setEditing] = useState(!hasBaseline);
+  const [pilotStartedAt, setPilotStartedAt] = useState(
+    project.pilotStartedAt ?? new Date().toISOString().slice(0, 10),
+  );
+  const [currentStage, setCurrentStage] = useState(
+    project.currentStage ?? 'Planejamento',
+  );
+  const [summary, setSummary] = useState(project.baselineSummary ?? '');
+  const [responsibleEngineer, setResponsibleEngineer] = useState(
+    project.responsibleEngineer ?? '',
+  );
+
+  function submit() {
+    void saveBaseline(project.id, {
+      pilotStartedAt,
+      currentStage,
+      summary,
+      responsibleEngineer,
+    })
+      .then(() => setEditing(false))
+      .catch(() => undefined);
+  }
+
+  return (
+    <Card>
+      <CardHeader className="border-b">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardDescription className="flex items-center gap-2">
+              <Milestone className="size-4 text-amber-800" /> Marco zero
+            </CardDescription>
+            <CardTitle className="mt-1">{project.name}</CardTitle>
+          </div>
+          {!editing && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setEditing(true)}
+            >
+              <Pencil /> Editar
+            </Button>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent>
+        {editing ? (
+          <div className="grid gap-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label
+                className="grid gap-1.5 text-sm font-medium"
+                htmlFor={`baseline-date-${project.id}`}
+              >
+                Início do acompanhamento
+                <Input
+                  id={`baseline-date-${project.id}`}
+                  type="date"
+                  value={pilotStartedAt}
+                  onChange={(event) => setPilotStartedAt(event.target.value)}
+                />
+              </label>
+              <label
+                className="grid gap-1.5 text-sm font-medium"
+                htmlFor={`baseline-stage-${project.id}`}
+              >
+                Etapa atual
+                <NativeSelect
+                  id={`baseline-stage-${project.id}`}
+                  value={currentStage}
+                  onChange={(event) => setCurrentStage(event.target.value)}
+                >
+                  {[
+                    'Planejamento',
+                    'Fundação',
+                    'Estrutura',
+                    'Vedações',
+                    'Instalações',
+                    'Acabamentos',
+                    'Entrega',
+                  ].map((stage) => (
+                    <NativeSelectOption key={stage} value={stage}>
+                      {stage}
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelect>
+              </label>
+            </div>
+            <label
+              className="grid gap-1.5 text-sm font-medium"
+              htmlFor={`baseline-summary-${project.id}`}
+            >
+              Contexto inicial da obra
+              <Textarea
+                id={`baseline-summary-${project.id}`}
+                className="min-h-24 resize-none"
+                maxLength={500}
+                placeholder="Registre o estado da obra, riscos conhecidos e o foco do piloto."
+                value={summary}
+                onChange={(event) => setSummary(event.target.value)}
+              />
+            </label>
+            <label
+              className="grid gap-1.5 text-sm font-medium sm:max-w-sm"
+              htmlFor={`baseline-engineer-${project.id}`}
+            >
+              Engenheiro responsável
+              <Input
+                id={`baseline-engineer-${project.id}`}
+                maxLength={80}
+                placeholder="Nome do responsável"
+                value={responsibleEngineer}
+                onChange={(event) => setResponsibleEngineer(event.target.value)}
+              />
+            </label>
+            <div className="flex flex-wrap justify-end gap-2">
+              {hasBaseline && (
+                <Button variant="ghost" onClick={() => setEditing(false)}>
+                  <X /> Cancelar
+                </Button>
+              )}
+              <Button
+                onClick={submit}
+                disabled={saving || summary.trim().length < 12}
+              >
+                {saving ? <LoaderCircle className="animate-spin" /> : <Save />}
+                Salvar marco zero
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-[180px_minmax(0,1fr)]">
+            <div className="space-y-3">
+              <div>
+                <p className="text-xs text-muted-foreground">Etapa atual</p>
+                <Badge className="mt-1 bg-amber-800 text-white">
+                  {project.currentStage}
+                </Badge>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">
+                  Início do piloto
+                </p>
+                <p className="mt-1 text-sm font-medium">
+                  {formatDateOnly(project.pilotStartedAt ?? '')}
+                </p>
+              </div>
+            </div>
+            <div>
+              <p className="text-sm leading-relaxed">
+                {project.baselineSummary}
+              </p>
+              <p className="mt-3 text-xs text-muted-foreground">
+                Responsável: {project.responsibleEngineer ?? 'A definir'}
+              </p>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function PortfolioPilotCard({ projects }: { projects: Project[] }) {
+  const baselines = projects.filter((project) => project.pilotStartedAt).length;
+  return (
+    <Card>
+      <CardHeader>
+        <CardDescription className="flex items-center gap-2">
+          <Milestone className="size-4 text-amber-800" /> Piloto CiviTek
+        </CardDescription>
+        <CardTitle>Valide valor em uma obra por vez</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
+          Selecione uma obra para registrar seu ponto de partida, acompanhar a
+          evolução e comparar resultados antes de ampliar para o portfólio.
+        </p>
+        <Badge variant="outline" className="mt-4">
+          {baselines} de {projects.length} obras com marco zero
+        </Badge>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ProjectInsights({ occurrences }: { occurrences: Occurrence[] }) {
+  const closed = occurrences.filter((item) => item.status === 'closed').length;
+  const openCritical = occurrences.filter(
+    (item) => item.severity === 'high' && item.status !== 'closed',
+  ).length;
+  const closureRate = occurrences.length
+    ? Math.round((closed / occurrences.length) * 100)
+    : 0;
+  return (
+    <Card>
+      <CardHeader>
+        <CardDescription className="flex items-center gap-2">
+          <TrendingUp className="size-4 text-amber-800" /> Insights do piloto
+        </CardDescription>
+        <CardTitle className="text-lg">Leitura rápida</CardTitle>
+      </CardHeader>
+      <CardContent className="grid grid-cols-3 divide-x text-center">
+        <InsightMetric
+          label="Tema recorrente"
+          value={getTopCategory(occurrences)}
+        />
+        <InsightMetric label="Encerradas" value={`${closureRate}%`} />
+        <InsightMetric
+          alert={openCritical > 0}
+          label="Críticas abertas"
+          value={openCritical}
+        />
+      </CardContent>
+    </Card>
+  );
+}
+
+function InsightMetric({
+  alert = false,
+  label,
+  value,
+}: {
+  alert?: boolean;
+  label: string;
+  value: string | number;
+}) {
+  return (
+    <div className="min-w-0 px-2">
+      <p
+        className={`truncate text-base font-semibold tabular-nums ${alert ? 'text-red-700' : ''}`}
+        title={String(value)}
+      >
+        {value}
+      </p>
+      <p className="mt-1 text-[11px] leading-tight text-muted-foreground">
+        {label}
+      </p>
+    </div>
+  );
+}
+
+function ProjectHistoryTimeline({
+  history,
+  loading,
+  openOccurrence,
+}: {
+  history: ProjectHistoryItem[];
+  loading: boolean;
+  openOccurrence: (id: string) => void;
+}) {
+  return (
+    <Card className="self-start">
+      <CardHeader className="border-b">
+        <CardTitle className="text-lg">Linha do tempo</CardTitle>
+        <CardDescription>
+          Decisões e mudanças preservadas por obra.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="px-0 py-0">
+        {history.map((item) => (
+          <HistoryTimelineItem
+            key={item.id}
+            item={item}
+            openOccurrence={openOccurrence}
+          />
+        ))}
+        {!loading && history.length === 0 && (
+          <EmptyState text="Nenhum evento registrado neste recorte." />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function HistoryTimelineItem({
+  item,
+  openOccurrence,
+}: {
+  item: ProjectHistoryItem;
+  openOccurrence: (id: string) => void;
+}) {
+  const icon =
+    item.type === 'baseline' ? (
+      <Milestone />
+    ) : item.type === 'compliance' ? (
+      <BookOpenCheck />
+    ) : item.type === 'status' ? (
+      <CheckCircle2 />
+    ) : (
+      <ClipboardCheck />
+    );
+  const content = (
+    <div className="flex items-start gap-3 border-b px-4 py-4 last:border-0">
+      <div className="grid size-9 shrink-0 place-items-center rounded-full bg-amber-50 text-amber-800 [&_svg]:size-4">
+        {icon}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium">{item.title}</p>
+        {item.description && (
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            {item.description}
+          </p>
+        )}
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          {item.projectName ?? 'Obra a confirmar'} · {item.actor} ·{' '}
+          {formatDate(item.createdAt)}
+        </p>
+      </div>
+      {item.occurrenceCode && (
+        <span className="text-[11px] font-semibold text-amber-800">
+          {item.occurrenceCode}
+        </span>
+      )}
+    </div>
+  );
+  return item.occurrenceId ? (
+    <button
+      type="button"
+      className="w-full text-left transition hover:bg-muted/35"
+      onClick={() => openOccurrence(item.occurrenceId!)}
+    >
+      {content}
+    </button>
+  ) : (
+    <div>{content}</div>
   );
 }
 
@@ -2056,30 +2485,6 @@ function ComplianceRow({
   );
 }
 
-function FlowStep({
-  description,
-  icon,
-  title,
-}: {
-  description: string;
-  icon: React.ReactNode;
-  title: string;
-}) {
-  return (
-    <div className="flex items-start gap-3">
-      <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-amber-50 text-amber-800 [&_svg]:size-4">
-        {icon}
-      </div>
-      <div>
-        <p className="text-sm font-medium">{title}</p>
-        <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-          {description}
-        </p>
-      </div>
-    </div>
-  );
-}
-
 function SummaryCard({
   context,
   icon,
@@ -2244,8 +2649,8 @@ function getNavItems(role: Role) {
       },
       {
         view: 'updates' as View,
-        label: 'Atualizações',
-        icon: <MessagesSquare />,
+        label: 'Histórico',
+        icon: <History />,
       },
       {
         view: 'whatsapp' as View,
@@ -2272,8 +2677,8 @@ function getNavItems(role: Role) {
     },
     {
       view: 'updates' as View,
-      label: 'Atualizações',
-      icon: <MessagesSquare />,
+      label: 'Histórico',
+      icon: <History />,
     },
     {
       view: 'whatsapp' as View,
@@ -2316,6 +2721,17 @@ function getResolvedComplianceRate(items: ComplianceItem[]) {
   );
 }
 
+function getTopCategory(occurrences: Occurrence[]) {
+  if (occurrences.length === 0) return 'Sem dados';
+  const counts = occurrences.reduce<Record<string, number>>((result, item) => {
+    result[item.category] = (result[item.category] ?? 0) + 1;
+    return result;
+  }, {});
+  return (
+    Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'Sem dados'
+  );
+}
+
 function getMessageIcon(messageType: string) {
   if (messageType === 'image') return <ImageIcon className="size-4" />;
   if (messageType === 'audio') return <AudioLines className="size-4" />;
@@ -2336,6 +2752,16 @@ function formatDate(value: string) {
     hour: '2-digit',
     minute: '2-digit',
   }).format(new Date(value));
+}
+
+function formatDateOnly(value: string) {
+  if (!value) return 'A definir';
+  return new Intl.DateTimeFormat('pt-BR', {
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(`${value}T12:00:00.000Z`));
 }
 
 function formatTime(value: string) {

@@ -1,5 +1,5 @@
 import { getChatGPTUser } from '@/app/chatgpt-auth';
-import { listProjectUpdates } from '@/db/repository';
+import { listProjectHistory, listProjectUpdates } from '@/db/repository';
 
 export async function GET() {
   if (!(await getChatGPTUser())) {
@@ -7,8 +7,11 @@ export async function GET() {
   }
 
   try {
-    const updates = await listProjectUpdates();
-    return Response.json({ updates });
+    const [updates, history] = await Promise.all([
+      listProjectUpdates(),
+      listProjectHistory(),
+    ]);
+    return Response.json({ updates, history });
   } catch (error) {
     return Response.json(
       {

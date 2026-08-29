@@ -372,6 +372,46 @@ async function seedDemoData(database: D1Database) {
       status: 'compliant',
       updatedAt: '2026-08-27T19:48:00.000Z',
     }),
+    seedWhatsAppMessage(database, {
+      id: 'message-042-inbound',
+      occurrenceId: 'occurrence-042',
+      phone: '5511999999999',
+      direction: 'inbound',
+      messageType: 'image',
+      body: 'A manta descolou no canto do box. Estou enviando a foto.',
+      deliveryStatus: 'received',
+      createdAt: '2026-08-28T22:41:00.000Z',
+    }),
+    seedWhatsAppMessage(database, {
+      id: 'message-041-inbound',
+      occurrenceId: 'occurrence-041',
+      phone: '5511988888888',
+      direction: 'inbound',
+      messageType: 'audio',
+      body: 'Tem uma fissura visível ao lado da janela do quarto. Parece ter aumentado desde ontem.',
+      deliveryStatus: 'received',
+      createdAt: '2026-08-28T22:07:00.000Z',
+    }),
+    seedWhatsAppMessage(database, {
+      id: 'message-045-inbound',
+      occurrenceId: 'occurrence-045',
+      phone: '5511966666666',
+      direction: 'inbound',
+      messageType: 'text',
+      body: 'A fixação do guarda-corpo ainda está solta no corredor do quarto andar.',
+      deliveryStatus: 'received',
+      createdAt: '2026-08-28T23:05:00.000Z',
+    }),
+    seedWhatsAppMessage(database, {
+      id: 'message-045-outbound',
+      occurrenceId: 'occurrence-045',
+      phone: '5511966666666',
+      direction: 'outbound',
+      messageType: 'text',
+      body: 'Recebemos seu relato. Protocolo OC-045 enviado para avaliação da engenharia.',
+      deliveryStatus: 'delivered',
+      createdAt: '2026-08-28T23:06:00.000Z',
+    }),
     database
       .prepare(
         `INSERT OR IGNORE INTO evidences
@@ -389,6 +429,38 @@ async function seedDemoData(database: D1Database) {
         '2026-08-28T22:41:00.000Z',
       ),
   ]);
+}
+
+function seedWhatsAppMessage(
+  database: D1Database,
+  data: {
+    id: string;
+    occurrenceId: string;
+    phone: string;
+    direction: string;
+    messageType: string;
+    body: string;
+    deliveryStatus: string;
+    createdAt: string;
+  },
+) {
+  return database
+    .prepare(
+      `INSERT OR IGNORE INTO whatsapp_messages
+        (id, occurrence_id, phone_e164, direction, message_type, body, payload, delivery_status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      data.id,
+      data.occurrenceId,
+      data.phone,
+      data.direction,
+      data.messageType,
+      data.body,
+      null,
+      data.deliveryStatus,
+      data.createdAt,
+    );
 }
 
 function seedComplianceCheck(

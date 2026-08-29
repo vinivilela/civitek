@@ -53,6 +53,22 @@ export type ProjectView = {
   highSeverityCount: number;
 };
 
+export type ProjectUpdateView = {
+  id: string;
+  occurrenceId: string | null;
+  occurrenceCode: string | null;
+  occurrenceTitle: string | null;
+  projectId: string | null;
+  projectName: string | null;
+  senderName: string;
+  direction: string;
+  messageType: string;
+  body: string | null;
+  deliveryStatus: string;
+  createdAt: string;
+  evidenceUrl: string | null;
+};
+
 export type InboundOccurrence = {
   messageId: string;
   phoneE164: string;
@@ -160,6 +176,63 @@ export async function listProjects(): Promise<ProjectView[]> {
         (occurrence) =>
           occurrence.severity === 'high' && occurrence.status !== 'closed',
       ).length,
+    };
+  });
+}
+
+export async function listProjectUpdates(): Promise<ProjectUpdateView[]> {
+  await ensureDatabase();
+  const db = getDb();
+  const rows = await db
+    .select({
+      id: whatsappMessages.id,
+      occurrenceId: whatsappMessages.occurrenceId,
+      occurrenceCode: occurrences.code,
+      occurrenceTitle: occurrences.title,
+      projectId: occurrences.projectId,
+      projectName: projects.name,
+      reporterName: occurrences.reporterName,
+      direction: whatsappMessages.direction,
+      messageType: whatsappMessages.messageType,
+      body: whatsappMessages.body,
+      deliveryStatus: whatsappMessages.deliveryStatus,
+      createdAt: whatsappMessages.createdAt,
+    })
+    .from(whatsappMessages)
+    .leftJoin(occurrences, eq(whatsappMessages.occurrenceId, occurrences.id))
+    .leftJoin(projects, eq(occurrences.projectId, projects.id))
+    .orderBy(desc(whatsappMessages.createdAt));
+
+  const evidenceRows = await db
+    .select({
+      id: evidences.id,
+      occurrenceId: evidences.occurrenceId,
+      objectKey: evidences.objectKey,
+    })
+    .from(evidences);
+
+  return rows.map((row) => {
+    const storedEvidence = evidenceRows.find(
+      (evidence) =>
+        evidence.occurrenceId === row.occurrenceId && evidence.objectKey,
+    );
+    return {
+      id: row.id,
+      occurrenceId: row.occurrenceId,
+      occurrenceCode: row.occurrenceCode,
+      occurrenceTitle: row.occurrenceTitle,
+      projectId: row.projectId,
+      projectName: row.projectName,
+      senderName:
+        row.direction === 'outbound'
+          ? 'CiviTek'
+          : (row.reporterName ?? 'Contato da obra'),
+      direction: row.direction,
+      messageType: row.messageType,
+      body: row.body,
+      deliveryStatus: row.deliveryStatus,
+      createdAt: row.createdAt,
+      evidenceUrl: storedEvidence ? `/api/evidence/${storedEvidence.id}` : null,
     };
   });
 }

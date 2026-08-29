@@ -13,11 +13,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Civitek — Qualidade em campo',
+  title: 'CiviTek — Qualidade em campo',
   description:
     'Ocorrências do canteiro transformadas em ação, evidência e aprendizado.',
   openGraph: {
-    title: 'Civitek — Qualidade em campo',
+    title: 'CiviTek — Qualidade em campo',
     description:
       'Ocorrências do canteiro transformadas em ação, evidência e aprendizado.',
     images: [

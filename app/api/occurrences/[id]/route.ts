@@ -1,5 +1,5 @@
 import { getChatGPTUser } from '@/app/chatgpt-auth';
-import { updateOccurrenceStatus } from '@/db/repository';
+import { updateComplianceCheck, updateOccurrenceStatus } from '@/db/repository';
 
 export async function PATCH(
   request: Request,
@@ -11,12 +11,31 @@ export async function PATCH(
 
   try {
     const { id } = await context.params;
-    const body = (await request.json()) as { status?: string };
-    await updateOccurrenceStatus(id, body.status ?? '');
+    const body = (await request.json()) as {
+      status?: string;
+      complianceCheckId?: string;
+      complianceStatus?: string;
+      engineerNote?: string;
+    };
+
+    if (body.complianceCheckId) {
+      await updateComplianceCheck(
+        body.complianceCheckId,
+        body.complianceStatus ?? '',
+        body.engineerNote,
+      );
+    } else {
+      await updateOccurrenceStatus(id, body.status ?? '');
+    }
     return Response.json({ ok: true });
   } catch (error) {
     return Response.json(
-      { error: error instanceof Error ? error.message : 'Falha ao atualizar ocorrência.' },
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Falha ao atualizar ocorrência.',
+      },
       { status: 400 },
     );
   }

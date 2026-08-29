@@ -83,6 +83,24 @@ async function initializeDatabase() {
     database.prepare(
       'CREATE INDEX IF NOT EXISTS evidences_occurrence_idx ON evidences (occurrence_id)',
     ),
+    database.prepare(`CREATE TABLE IF NOT EXISTS compliance_checks (
+      id TEXT PRIMARY KEY NOT NULL,
+      occurrence_id TEXT NOT NULL REFERENCES occurrences(id),
+      standard_code TEXT NOT NULL,
+      requirement TEXT NOT NULL,
+      status TEXT NOT NULL,
+      engineer_note TEXT,
+      updated_at TEXT NOT NULL
+    )`),
+    database.prepare(
+      'CREATE INDEX IF NOT EXISTS compliance_checks_occurrence_idx ON compliance_checks (occurrence_id)',
+    ),
+    database.prepare(
+      'CREATE INDEX IF NOT EXISTS compliance_checks_standard_idx ON compliance_checks (standard_code)',
+    ),
+    database.prepare(
+      'CREATE INDEX IF NOT EXISTS compliance_checks_status_idx ON compliance_checks (status)',
+    ),
     database.prepare(`CREATE TABLE IF NOT EXISTS whatsapp_messages (
       id TEXT PRIMARY KEY NOT NULL,
       occurrence_id TEXT REFERENCES occurrences(id),
@@ -290,6 +308,70 @@ async function seedDemoData(database: D1Database) {
       norm: null,
       createdAt: '2026-08-27T19:48:00.000Z',
     }),
+    seedComplianceCheck(database, {
+      id: 'check-045-pbqph',
+      occurrenceId: 'occurrence-045',
+      standardCode: 'PBQP-H',
+      requirement: 'Controle da execução e registro da inspeção',
+      status: 'pending',
+      updatedAt: '2026-08-28T23:05:00.000Z',
+    }),
+    seedComplianceCheck(database, {
+      id: 'check-044-pbqph',
+      occurrenceId: 'occurrence-044',
+      standardCode: 'PBQP-H',
+      requirement: 'Compatibilização entre projeto e serviço executado',
+      status: 'non_compliant',
+      updatedAt: '2026-08-28T21:18:00.000Z',
+    }),
+    seedComplianceCheck(database, {
+      id: 'check-043-pbqph',
+      occurrenceId: 'occurrence-043',
+      standardCode: 'PBQP-H',
+      requirement: 'Registro da inspeção e liberação do serviço',
+      status: 'compliant',
+      updatedAt: '2026-08-27T18:22:00.000Z',
+    }),
+    seedComplianceCheck(database, {
+      id: 'check-042-nbr15575',
+      occurrenceId: 'occurrence-042',
+      standardCode: 'NBR 15575',
+      requirement: 'Estanqueidade à água e proteção contra infiltrações',
+      status: 'non_compliant',
+      updatedAt: '2026-08-28T22:41:00.000Z',
+    }),
+    seedComplianceCheck(database, {
+      id: 'check-042-pbqph',
+      occurrenceId: 'occurrence-042',
+      standardCode: 'PBQP-H',
+      requirement: 'Rastreabilidade da inspeção e da correção',
+      status: 'pending',
+      updatedAt: '2026-08-28T22:41:00.000Z',
+    }),
+    seedComplianceCheck(database, {
+      id: 'check-041-nbr15575',
+      occurrenceId: 'occurrence-041',
+      standardCode: 'NBR 15575',
+      requirement: 'Desempenho estrutural e estabilidade',
+      status: 'pending',
+      updatedAt: '2026-08-28T22:07:00.000Z',
+    }),
+    seedComplianceCheck(database, {
+      id: 'check-040-pbqph',
+      occurrenceId: 'occurrence-040',
+      standardCode: 'PBQP-H',
+      requirement: 'Identificação e rastreabilidade de serviços e materiais',
+      status: 'non_compliant',
+      updatedAt: '2026-08-28T20:45:00.000Z',
+    }),
+    seedComplianceCheck(database, {
+      id: 'check-039-pbqph',
+      occurrenceId: 'occurrence-039',
+      standardCode: 'PBQP-H',
+      requirement: 'Evidência de correção e encerramento rastreável',
+      status: 'compliant',
+      updatedAt: '2026-08-27T19:48:00.000Z',
+    }),
     database
       .prepare(
         `INSERT OR IGNORE INTO evidences
@@ -307,6 +389,34 @@ async function seedDemoData(database: D1Database) {
         '2026-08-28T22:41:00.000Z',
       ),
   ]);
+}
+
+function seedComplianceCheck(
+  database: D1Database,
+  data: {
+    id: string;
+    occurrenceId: string;
+    standardCode: string;
+    requirement: string;
+    status: string;
+    updatedAt: string;
+  },
+) {
+  return database
+    .prepare(
+      `INSERT OR IGNORE INTO compliance_checks
+        (id, occurrence_id, standard_code, requirement, status, engineer_note, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      data.id,
+      data.occurrenceId,
+      data.standardCode,
+      data.requirement,
+      data.status,
+      null,
+      data.updatedAt,
+    );
 }
 
 function seedOccurrence(

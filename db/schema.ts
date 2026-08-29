@@ -19,10 +19,7 @@ export const projects = sqliteTable(
     createdAt: text('created_at').notNull(),
   },
   (table) => [
-    uniqueIndex('projects_company_code_unique').on(
-      table.companyId,
-      table.code,
-    ),
+    uniqueIndex('projects_company_code_unique').on(table.companyId, table.code),
   ],
 );
 
@@ -38,7 +35,9 @@ export const phoneAssignments = sqliteTable(
     active: integer('active', { mode: 'boolean' }).notNull(),
     createdAt: text('created_at').notNull(),
   },
-  (table) => [uniqueIndex('phone_assignments_phone_unique').on(table.phoneE164)],
+  (table) => [
+    uniqueIndex('phone_assignments_phone_unique').on(table.phoneE164),
+  ],
 );
 
 export const occurrences = sqliteTable(
@@ -86,6 +85,26 @@ export const evidences = sqliteTable(
     createdAt: text('created_at').notNull(),
   },
   (table) => [index('evidences_occurrence_idx').on(table.occurrenceId)],
+);
+
+export const complianceChecks = sqliteTable(
+  'compliance_checks',
+  {
+    id: text('id').primaryKey(),
+    occurrenceId: text('occurrence_id')
+      .notNull()
+      .references(() => occurrences.id),
+    standardCode: text('standard_code').notNull(),
+    requirement: text('requirement').notNull(),
+    status: text('status').notNull(),
+    engineerNote: text('engineer_note'),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => [
+    index('compliance_checks_occurrence_idx').on(table.occurrenceId),
+    index('compliance_checks_standard_idx').on(table.standardCode),
+    index('compliance_checks_status_idx').on(table.status),
+  ],
 );
 
 export const whatsappMessages = sqliteTable(

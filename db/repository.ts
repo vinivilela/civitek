@@ -3,12 +3,22 @@ import { ensureDatabase } from './bootstrap';
 import { getDb } from './index';
 import {
   auditEvents,
+  complianceChecks,
   evidences,
   occurrences,
   phoneAssignments,
   projects,
   whatsappMessages,
 } from './schema';
+
+export type ComplianceCheckView = {
+  id: string;
+  standardCode: string;
+  requirement: string;
+  status: string;
+  engineerNote: string | null;
+  updatedAt: string;
+};
 
 export type OccurrenceView = {
   id: string;
@@ -29,6 +39,7 @@ export type OccurrenceView = {
   createdAt: string;
   evidenceCount: number;
   evidenceUrl: string | null;
+  complianceChecks: ComplianceCheckView[];
 };
 
 export type ProjectView = {
@@ -85,6 +96,18 @@ export async function listOccurrences(): Promise<OccurrenceView[]> {
     })
     .from(evidences);
 
+  const complianceRows = await db
+    .select({
+      id: complianceChecks.id,
+      occurrenceId: complianceChecks.occurrenceId,
+      standardCode: complianceChecks.standardCode,
+      requirement: complianceChecks.requirement,
+      status: complianceChecks.status,
+      engineerNote: complianceChecks.engineerNote,
+      updatedAt: complianceChecks.updatedAt,
+    })
+    .from(complianceChecks);
+
   return rows.map((row) => {
     const matchingEvidence = evidenceRows.filter(
       (evidence) => evidence.occurrenceId === row.id,
@@ -96,6 +119,9 @@ export async function listOccurrences(): Promise<OccurrenceView[]> {
       ...row,
       evidenceCount: matchingEvidence.length,
       evidenceUrl: storedEvidence ? `/api/evidence/${storedEvidence.id}` : null,
+      complianceChecks: complianceRows
+        .filter((check) => check.occurrenceId === row.id)
+        .map(({ occurrenceId: _, ...check }) => check),
     };
   });
 }
@@ -212,6 +238,20 @@ export async function createOccurrenceFromWhatsApp(input: InboundOccurrence) {
     updatedAt: now,
   });
 
+  if (classification.complianceChecks.length > 0) {
+    await db.insert(complianceChecks).values(
+      classification.complianceChecks.map((check) => ({
+        id: crypto.randomUUID(),
+        occurrenceId: id,
+        standardCode: check.standardCode,
+        requirement: check.requirement,
+        status: 'pending',
+        engineerNote: null,
+        updatedAt: now,
+      })),
+    );
+  }
+
   await db.insert(whatsappMessages).values({
     id: input.messageId,
     occurrenceId: id,
@@ -310,6 +350,55 @@ export async function updateOccurrenceStatus(id: string, status: string) {
   });
 }
 
+export async function updateComplianceCheck(
+  id: string,
+  status: string,
+  engineerNote?: string,
+) {
+  await ensureDatabase();
+  const db = getDb();
+  const allowed = new Set([
+    'pending',
+    'compliant',
+    'non_compliant',
+    'not_applicable',
+  ]);
+
+  if (!allowed.has(status)) {
+    throw new Error('Situação de conformidade inválida.');
+  }
+
+  const rows = await db
+    .select({ occurrenceId: complianceChecks.occurrenceId })
+    .from(complianceChecks)
+    .where(eq(complianceChecks.id, id))
+    .limit(1);
+  const check = rows[0];
+
+  if (!check) {
+    throw new Error('Item de conformidade não encontrado.');
+  }
+
+  const now = new Date().toISOString();
+  await db
+    .update(complianceChecks)
+    .set({
+      status,
+      engineerNote: engineerNote?.trim() || null,
+      updatedAt: now,
+    })
+    .where(eq(complianceChecks.id, id));
+
+  await db.insert(auditEvents).values({
+    id: crypto.randomUUID(),
+    occurrenceId: check.occurrenceId,
+    actor: 'dashboard-engineer',
+    action: `compliance.${status}`,
+    detail: engineerNote?.trim() || null,
+    createdAt: now,
+  });
+}
+
 function classifyOccurrence(text: string) {
   const normalized = text.toLocaleLowerCase('pt-BR');
   const location = extractLocation(text);
@@ -323,7 +412,17 @@ function classifyOccurrence(text: string) {
       summary:
         'Possível falha de impermeabilização identificada no relato de campo.',
       normativeReference:
-        'Referência técnica candidata: impermeabilização. Validar com o responsável técnico.',
+        'NBR 15575 · Estanqueidade. Validar o requisito aplicável com o responsável técnico.',
+      complianceChecks: [
+        {
+          standardCode: 'NBR 15575',
+          requirement: 'Estanqueidade à água e proteção contra infiltrações',
+        },
+        {
+          standardCode: 'PBQP-H',
+          requirement: 'Rastreabilidade da inspeção e da correção',
+        },
+      ],
     };
   }
 
@@ -335,7 +434,13 @@ function classifyOccurrence(text: string) {
       severity: 'high',
       summary: 'Relato estrutural ou de vedação que requer inspeção técnica.',
       normativeReference:
-        'Referência técnica candidata: estrutura e vedação. Validar em inspeção.',
+        'NBR 15575 · Desempenho estrutural. Validar o requisito aplicável em inspeção.',
+      complianceChecks: [
+        {
+          standardCode: 'NBR 15575',
+          requirement: 'Desempenho estrutural e estabilidade',
+        },
+      ],
     };
   }
 
@@ -348,7 +453,13 @@ function classifyOccurrence(text: string) {
       summary:
         'Irregularidade de instalação classificada para triagem da engenharia.',
       normativeReference:
-        'Referência técnica candidata: instalações. Confirmar disciplina e projeto aplicável.',
+        'PBQP-H · Controle de projeto e execução. Confirmar a disciplina aplicável.',
+      complianceChecks: [
+        {
+          standardCode: 'PBQP-H',
+          requirement: 'Compatibilização entre projeto e serviço executado',
+        },
+      ],
     };
   }
 
@@ -361,7 +472,13 @@ function classifyOccurrence(text: string) {
       summary:
         'Possível risco de segurança; priorizar avaliação da equipe responsável.',
       normativeReference:
-        'Referência técnica candidata: segurança do trabalho. Validar com o técnico responsável.',
+        'PBQP-H · Controle da execução. Validar com o responsável técnico.',
+      complianceChecks: [
+        {
+          standardCode: 'PBQP-H',
+          requirement: 'Controle da execução e registro da inspeção',
+        },
+      ],
     };
   }
 
@@ -372,6 +489,12 @@ function classifyOccurrence(text: string) {
     severity: 'medium',
     summary: 'Relato recebido e normalizado para triagem da equipe técnica.',
     normativeReference: null,
+    complianceChecks: [
+      {
+        standardCode: 'PBQP-H',
+        requirement: 'Triagem, registro e rastreabilidade da ocorrência',
+      },
+    ],
   };
 }
 

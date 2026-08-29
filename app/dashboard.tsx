@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
 import {
+  BookOpenCheck,
   Building2,
   CheckCircle2,
   ChevronRight,
@@ -16,6 +17,7 @@ import {
   MoreHorizontal,
   Search,
   ShieldCheck,
+  UserCog,
   UsersRound,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -41,7 +43,26 @@ import {
   TableRow,
 } from '@/components/ui/table';
 
-type View = 'overview' | 'occurrences' | 'projects' | 'whatsapp';
+type View = 'overview' | 'occurrences' | 'projects' | 'compliance' | 'whatsapp';
+
+type Role = 'manager' | 'engineer';
+
+type ComplianceCheck = {
+  id: string;
+  standardCode: string;
+  requirement: string;
+  status: string;
+  engineerNote: string | null;
+  updatedAt: string;
+};
+
+type ComplianceItem = ComplianceCheck & {
+  occurrenceId: string;
+  occurrenceCode: string;
+  occurrenceTitle: string;
+  projectId: string | null;
+  projectName: string | null;
+};
 
 type Occurrence = {
   id: string;
@@ -60,6 +81,7 @@ type Occurrence = {
   createdAt: string;
   evidenceCount: number;
   evidenceUrl: string | null;
+  complianceChecks: ComplianceCheck[];
 };
 
 type Project = {
@@ -86,14 +108,23 @@ const statusLabels: Record<string, string> = {
   needs_context: 'Sem obra vinculada',
 };
 
+const complianceStatusLabels: Record<string, string> = {
+  pending: 'Pendente',
+  compliant: 'Conforme',
+  non_compliant: 'Não conforme',
+  not_applicable: 'Não aplicável',
+};
+
 const viewContent: Record<View, { title: string; eyebrow: string }> = {
   overview: { title: 'Visão geral', eyebrow: 'Portfólio da construtora' },
   occurrences: { title: 'Ocorrências', eyebrow: 'Qualidade em campo' },
   projects: { title: 'Obras', eyebrow: 'Acompanhamento por projeto' },
+  compliance: { title: 'Conformidade', eyebrow: 'PBQP-H e NBR 15575' },
   whatsapp: { title: 'Canal WhatsApp', eyebrow: 'Entrada de campo' },
 };
 
 export default function Dashboard() {
+  const [role, setRole] = useState<Role>('manager');
   const [activeView, setActiveView] = useState<View>('overview');
   const [occurrences, setOccurrences] = useState<Occurrence[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -105,6 +136,7 @@ export default function Dashboard() {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
+  const [updatingCheckId, setUpdatingCheckId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   async function loadOccurrences(preferredId?: string) {
@@ -153,6 +185,12 @@ export default function Dashboard() {
     return () => window.clearTimeout(timer);
   }, []);
 
+  useEffect(() => {
+    if (role === 'engineer' && selectedProjectId === 'all' && projects[0]) {
+      setSelectedProjectId(projects[0].id);
+    }
+  }, [projects, role, selectedProjectId]);
+
   const filtered = useMemo(() => {
     const normalized = query.toLocaleLowerCase('pt-BR').trim();
     return occurrences.filter((occurrence) => {
@@ -198,6 +236,31 @@ export default function Dashboard() {
     ).length,
     closed: occurrences.filter((item) => item.status === 'closed').length,
   };
+  const complianceItems = useMemo(
+    () =>
+      occurrences.flatMap((occurrence) =>
+        occurrence.complianceChecks.map((check) => ({
+          ...check,
+          occurrenceId: occurrence.id,
+          occurrenceCode: occurrence.code,
+          occurrenceTitle: occurrence.title,
+          projectId: occurrence.projectId,
+          projectName: occurrence.projectName,
+        })),
+      ),
+    [occurrences],
+  );
+  const resolvedCompliance = complianceItems.filter((item) =>
+    ['compliant', 'non_compliant'].includes(item.status),
+  );
+  const complianceRate = resolvedCompliance.length
+    ? Math.round(
+        (resolvedCompliance.filter((item) => item.status === 'compliant')
+          .length /
+          resolvedCompliance.length) *
+          100,
+      )
+    : 0;
 
   async function moveToTreatment() {
     if (!selected) return;
@@ -218,6 +281,48 @@ export default function Dashboard() {
     } finally {
       setUpdating(false);
     }
+  }
+
+  async function validateCompliance(checkId: string, status: string) {
+    const item = complianceItems.find((check) => check.id === checkId);
+    if (!item) return;
+    setUpdatingCheckId(checkId);
+    setNotice(null);
+    try {
+      const response = await fetch('/api/occurrences/' + item.occurrenceId, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          complianceCheckId: checkId,
+          complianceStatus: status,
+        }),
+      });
+      if (!response.ok)
+        throw new Error('Não foi possível registrar a conformidade.');
+      await loadOccurrences(item.occurrenceId);
+      setNotice(
+        `${item.standardCode} atualizado para ${complianceStatusLabels[status].toLocaleLowerCase('pt-BR')}.`,
+      );
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Falha ao atualizar.');
+    } finally {
+      setUpdatingCheckId(null);
+    }
+  }
+
+  function changeRole(nextRole: Role) {
+    setRole(nextRole);
+    setQuery('');
+    setNotice(null);
+    if (nextRole === 'engineer') {
+      setSelectedProjectId((current) =>
+        current === 'all' ? (projects[0]?.id ?? 'all') : current,
+      );
+      setActiveView('occurrences');
+      return;
+    }
+    setSelectedProjectId('all');
+    setActiveView('overview');
   }
 
   function openProject(projectId: string) {
@@ -249,26 +354,38 @@ export default function Dashboard() {
           </div>
 
           <nav className="mt-9 space-y-1" aria-label="Navegação principal">
+            {role === 'manager' ? (
+              <>
+                <NavButton
+                  active={activeView === 'overview'}
+                  onClick={() => setActiveView('overview')}
+                  icon={<LayoutDashboard />}
+                >
+                  Visão geral
+                </NavButton>
+                <NavButton
+                  active={activeView === 'projects'}
+                  onClick={() => setActiveView('projects')}
+                  icon={<Building2 />}
+                >
+                  Obras
+                </NavButton>
+              </>
+            ) : (
+              <NavButton
+                active={activeView === 'occurrences'}
+                onClick={() => setActiveView('occurrences')}
+                icon={<ClipboardCheck />}
+              >
+                Minha obra
+              </NavButton>
+            )}
             <NavButton
-              active={activeView === 'overview'}
-              onClick={() => setActiveView('overview')}
-              icon={<LayoutDashboard />}
+              active={activeView === 'compliance'}
+              onClick={() => setActiveView('compliance')}
+              icon={<BookOpenCheck />}
             >
-              Visão geral
-            </NavButton>
-            <NavButton
-              active={activeView === 'occurrences'}
-              onClick={() => setActiveView('occurrences')}
-              icon={<ClipboardCheck />}
-            >
-              Ocorrências
-            </NavButton>
-            <NavButton
-              active={activeView === 'projects'}
-              onClick={() => setActiveView('projects')}
-              icon={<Building2 />}
-            >
-              Obras
+              Conformidade
             </NavButton>
             <NavButton
               active={activeView === 'whatsapp'}
@@ -278,6 +395,16 @@ export default function Dashboard() {
               Canal WhatsApp
             </NavButton>
           </nav>
+
+          <div className="mt-5 rounded-lg border border-sidebar-border px-3 py-2.5">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-sidebar-foreground/55">
+              Perfil atual
+            </p>
+            <div className="mt-1.5 flex items-center gap-2 text-sm font-medium">
+              <UserCog className="size-4" />
+              {role === 'manager' ? 'Gestor' : 'Engenheiro'}
+            </div>
+          </div>
 
           <div className="mt-auto rounded-xl border border-sidebar-border bg-white/[0.06] p-3">
             <div className="flex items-center gap-2">
@@ -313,32 +440,75 @@ export default function Dashboard() {
                 </h1>
               </div>
             </div>
-            <Badge variant="outline" className="h-8 w-fit px-3">
-              <ShieldCheck className="size-3.5" /> Ambiente autenticado
-            </Badge>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              {role === 'engineer' && (
+                <NativeSelect
+                  className="w-full sm:w-52"
+                  value={selectedProjectId}
+                  onChange={(event) => setSelectedProjectId(event.target.value)}
+                  aria-label="Obra do engenheiro"
+                >
+                  {projects.map((project) => (
+                    <NativeSelectOption key={project.id} value={project.id}>
+                      {project.name}
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelect>
+              )}
+              <NativeSelect
+                className="w-full sm:w-44"
+                value={role}
+                onChange={(event) => changeRole(event.target.value as Role)}
+                aria-label="Perfil de trabalho"
+              >
+                <NativeSelectOption value="manager">
+                  Visão do gestor
+                </NativeSelectOption>
+                <NativeSelectOption value="engineer">
+                  Visão do engenheiro
+                </NativeSelectOption>
+              </NativeSelect>
+              <Badge
+                variant="outline"
+                className="hidden h-8 w-fit px-3 xl:inline-flex"
+              >
+                <ShieldCheck className="size-3.5" /> Autenticado
+              </Badge>
+            </div>
           </header>
 
           <nav
             className="-mx-1 mt-3 flex gap-1 overflow-x-auto pb-1 lg:hidden"
             aria-label="Navegação principal"
           >
+            {role === 'manager' ? (
+              <>
+                <MobileNavButton
+                  active={activeView === 'overview'}
+                  onClick={() => setActiveView('overview')}
+                >
+                  Geral
+                </MobileNavButton>
+                <MobileNavButton
+                  active={activeView === 'projects'}
+                  onClick={() => setActiveView('projects')}
+                >
+                  Obras
+                </MobileNavButton>
+              </>
+            ) : (
+              <MobileNavButton
+                active={activeView === 'occurrences'}
+                onClick={() => setActiveView('occurrences')}
+              >
+                Minha obra
+              </MobileNavButton>
+            )}
             <MobileNavButton
-              active={activeView === 'overview'}
-              onClick={() => setActiveView('overview')}
+              active={activeView === 'compliance'}
+              onClick={() => setActiveView('compliance')}
             >
-              Geral
-            </MobileNavButton>
-            <MobileNavButton
-              active={activeView === 'occurrences'}
-              onClick={() => setActiveView('occurrences')}
-            >
-              Ocorrências
-            </MobileNavButton>
-            <MobileNavButton
-              active={activeView === 'projects'}
-              onClick={() => setActiveView('projects')}
-            >
-              Obras
+              Normas
             </MobileNavButton>
             <MobileNavButton
               active={activeView === 'whatsapp'}
@@ -360,6 +530,7 @@ export default function Dashboard() {
               occurrences={occurrences}
               projects={projects}
               stats={portfolioStats}
+              complianceRate={complianceRate}
               openProject={openProject}
               openOccurrences={() => {
                 setSelectedProjectId('all');
@@ -374,6 +545,7 @@ export default function Dashboard() {
               moveToTreatment={moveToTreatment}
               projects={projects}
               query={query}
+              role={role}
               scopedStats={scopedStats}
               selected={selected}
               selectedProjectId={selectedProjectId}
@@ -387,7 +559,19 @@ export default function Dashboard() {
             <ProjectsView
               loading={loading}
               projects={projects}
+              occurrences={occurrences}
               openProject={openProject}
+            />
+          )}
+          {activeView === 'compliance' && (
+            <ComplianceView
+              items={complianceItems}
+              loading={loading}
+              projects={projects}
+              role={role}
+              selectedProjectId={selectedProjectId}
+              updatingCheckId={updatingCheckId}
+              validateCompliance={validateCompliance}
             />
           )}
           {activeView === 'whatsapp' && (
@@ -404,6 +588,7 @@ function Overview({
   occurrences,
   projects,
   stats,
+  complianceRate,
   openProject,
   openOccurrences,
 }: {
@@ -411,6 +596,7 @@ function Overview({
   occurrences: Occurrence[];
   projects: Project[];
   stats: { open: number; high: number; closed: number };
+  complianceRate: number;
   openProject: (projectId: string) => void;
   openOccurrences: () => void;
 }) {
@@ -433,9 +619,9 @@ function Overview({
           value={loading ? '—' : stats.high}
         />
         <SummaryCard
-          icon={<CheckCircle2 className="size-4 text-emerald-700" />}
-          label="Encerradas"
-          value={loading ? '—' : stats.closed}
+          icon={<BookOpenCheck className="size-4 text-emerald-700" />}
+          label="Conformidade validada"
+          value={loading ? '—' : `${complianceRate}%`}
         />
       </div>
 
@@ -580,6 +766,7 @@ function OccurrencesView({
   moveToTreatment,
   projects,
   query,
+  role,
   scopedStats,
   selected,
   selectedProjectId,
@@ -593,6 +780,7 @@ function OccurrencesView({
   moveToTreatment: () => void;
   projects: Project[];
   query: string;
+  role: Role;
   scopedStats: { new: number; inProgress: number; closed: number };
   selected: Occurrence | null;
   selectedProjectId: string;
@@ -626,7 +814,9 @@ function OccurrencesView({
           <CardHeader className="border-b">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <CardTitle>Caixa de entrada</CardTitle>
+                <CardTitle>
+                  {role === 'engineer' ? 'Fila da obra' : 'Caixa de entrada'}
+                </CardTitle>
                 <CardDescription>
                   Relatos organizados para triagem da engenharia.
                 </CardDescription>
@@ -637,9 +827,11 @@ function OccurrencesView({
                 onChange={(event) => setSelectedProjectId(event.target.value)}
                 aria-label="Filtrar por obra"
               >
-                <NativeSelectOption value="all">
-                  Todas as obras
-                </NativeSelectOption>
+                {role === 'manager' && (
+                  <NativeSelectOption value="all">
+                    Todas as obras
+                  </NativeSelectOption>
+                )}
                 {projects.map((project) => (
                   <NativeSelectOption key={project.id} value={project.id}>
                     {project.name}
@@ -829,14 +1021,36 @@ function OccurrenceDetail({
               <dt className="text-muted-foreground">Relato</dt>
               <dd className="leading-relaxed">“{selected.description}”</dd>
             </dl>
-            {selected.normativeReference && (
-              <div className="rounded-lg border bg-muted/30 p-3">
+            {selected.normativeReference &&
+              selected.complianceChecks.length === 0 && (
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs font-semibold text-muted-foreground">
+                    REFERÊNCIA TÉCNICA
+                  </p>
+                  <p className="mt-1 text-sm leading-relaxed">
+                    {selected.normativeReference}
+                  </p>
+                </div>
+              )}
+            {selected.complianceChecks.length > 0 && (
+              <div className="space-y-2 rounded-lg border p-3">
                 <p className="text-xs font-semibold text-muted-foreground">
-                  REFERÊNCIA TÉCNICA
+                  CONFORMIDADE
                 </p>
-                <p className="mt-1 text-sm leading-relaxed">
-                  {selected.normativeReference}
-                </p>
+                {selected.complianceChecks.map((check) => (
+                  <div
+                    key={check.id}
+                    className="flex items-start justify-between gap-3 text-sm"
+                  >
+                    <div>
+                      <p className="font-medium">{check.standardCode}</p>
+                      <p className="text-xs leading-relaxed text-muted-foreground">
+                        {check.requirement}
+                      </p>
+                    </div>
+                    <ComplianceStatusBadge status={check.status} />
+                  </div>
+                ))}
               </div>
             )}
             <Button
@@ -867,10 +1081,12 @@ function OccurrenceDetail({
 function ProjectsView({
   loading,
   projects,
+  occurrences,
   openProject,
 }: {
   loading: boolean;
   projects: Project[];
+  occurrences: Occurrence[];
   openProject: (projectId: string) => void;
 }) {
   return (
@@ -905,13 +1121,17 @@ function ProjectsView({
               </div>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-3 divide-x rounded-lg border bg-muted/20 py-3 text-center">
+              <div className="grid grid-cols-4 divide-x rounded-lg border bg-muted/20 py-3 text-center">
                 <ProjectMetric label="Total" value={project.occurrenceCount} />
                 <ProjectMetric label="Abertas" value={project.openCount} />
                 <ProjectMetric
                   label="Críticas"
                   value={project.highSeverityCount}
                   alert={project.highSeverityCount > 0}
+                />
+                <ProjectMetric
+                  label="Conformidade"
+                  value={`${getProjectComplianceRate(occurrences, project.id)}%`}
                 />
               </div>
               <Button
@@ -933,6 +1153,247 @@ function ProjectsView({
         )}
       </div>
     </div>
+  );
+}
+
+function ComplianceView({
+  items,
+  loading,
+  projects,
+  role,
+  selectedProjectId,
+  updatingCheckId,
+  validateCompliance,
+}: {
+  items: ComplianceItem[];
+  loading: boolean;
+  projects: Project[];
+  role: Role;
+  selectedProjectId: string;
+  updatingCheckId: string | null;
+  validateCompliance: (checkId: string, status: string) => void;
+}) {
+  const scopedItems =
+    role === 'manager'
+      ? items
+      : items.filter((item) => item.projectId === selectedProjectId);
+  const compliant = scopedItems.filter(
+    (item) => item.status === 'compliant',
+  ).length;
+  const nonCompliant = scopedItems.filter(
+    (item) => item.status === 'non_compliant',
+  ).length;
+  const pending = scopedItems.filter(
+    (item) => item.status === 'pending',
+  ).length;
+  const rate = getResolvedComplianceRate(scopedItems);
+
+  return (
+    <>
+      <div className="grid gap-3 py-5 sm:grid-cols-2 xl:grid-cols-4">
+        <SummaryCard
+          icon={<ShieldCheck className="size-4 text-emerald-700" />}
+          label="Conformidade validada"
+          value={loading ? '—' : `${rate}%`}
+        />
+        <SummaryCard
+          icon={<CheckCircle2 className="size-4 text-emerald-700" />}
+          label="Itens conformes"
+          value={loading ? '—' : compliant}
+        />
+        <SummaryCard
+          icon={<CircleAlert className="size-4 text-red-600" />}
+          label="Não conformes"
+          value={loading ? '—' : nonCompliant}
+        />
+        <SummaryCard
+          icon={<Clock3 className="size-4 text-amber-600" />}
+          label="Aguardando validação"
+          value={loading ? '—' : pending}
+        />
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+        {role === 'manager' ? (
+          <Card>
+            <CardHeader className="border-b">
+              <CardTitle>Conformidade por obra</CardTitle>
+              <CardDescription>
+                Comparativo do portfólio com base nos itens já avaliados.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="px-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="pl-4">Obra</TableHead>
+                    <TableHead>Índice</TableHead>
+                    <TableHead>Não conformes</TableHead>
+                    <TableHead className="hidden sm:table-cell">
+                      Pendentes
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {projects.map((project) => {
+                    const projectItems = items.filter(
+                      (item) => item.projectId === project.id,
+                    );
+                    return (
+                      <TableRow key={project.id}>
+                        <TableCell className="pl-4">
+                          <p className="font-medium">{project.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {project.address}
+                          </p>
+                        </TableCell>
+                        <TableCell className="font-semibold tabular-nums">
+                          {getResolvedComplianceRate(projectItems)}%
+                        </TableCell>
+                        <TableCell>
+                          {projectItems.filter(
+                            (item) => item.status === 'non_compliant',
+                          ).length || '—'}
+                        </TableCell>
+                        <TableCell className="hidden sm:table-cell">
+                          {
+                            projectItems.filter(
+                              (item) => item.status === 'pending',
+                            ).length
+                          }
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card className="min-w-0">
+            <CardHeader className="border-b">
+              <CardTitle>Validação técnica da obra</CardTitle>
+              <CardDescription>
+                O engenheiro classifica cada requisito a partir da inspeção e
+                das evidências recebidas.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="divide-y px-0 py-0">
+              {scopedItems.map((item) => (
+                <div
+                  key={item.id}
+                  className="grid gap-3 px-4 py-4 md:grid-cols-[minmax(0,1fr)_170px] md:items-center"
+                >
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="outline">{item.standardCode}</Badge>
+                      <span className="text-xs text-muted-foreground">
+                        {item.occurrenceCode}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-sm font-medium">
+                      {item.requirement}
+                    </p>
+                    <p className="mt-1 truncate text-xs text-muted-foreground">
+                      {item.occurrenceTitle}
+                    </p>
+                  </div>
+                  <NativeSelect
+                    value={item.status}
+                    disabled={updatingCheckId === item.id}
+                    onChange={(event) =>
+                      validateCompliance(item.id, event.target.value)
+                    }
+                    aria-label={`Conformidade de ${item.occurrenceCode}`}
+                  >
+                    <NativeSelectOption value="pending">
+                      Pendente
+                    </NativeSelectOption>
+                    <NativeSelectOption value="compliant">
+                      Conforme
+                    </NativeSelectOption>
+                    <NativeSelectOption value="non_compliant">
+                      Não conforme
+                    </NativeSelectOption>
+                    <NativeSelectOption value="not_applicable">
+                      Não aplicável
+                    </NativeSelectOption>
+                  </NativeSelect>
+                </div>
+              ))}
+              {!loading && scopedItems.length === 0 && (
+                <div className="grid h-32 place-items-center text-sm text-muted-foreground">
+                  Nenhum item de conformidade nesta obra.
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        <div className="space-y-4">
+          <StandardCard
+            code="PBQP-H"
+            title="Gestão da qualidade"
+            description="Rastreia projeto, execução, inspeção, evidências e correções."
+            areas="Controle · inspeção · rastreabilidade"
+            items={scopedItems}
+          />
+          <StandardCard
+            code="NBR 15575"
+            title="Desempenho da edificação"
+            description="Organiza verificações de desempenho ligadas às ocorrências."
+            areas="Térmico · acústico · estanqueidade · estrutural"
+            items={scopedItems}
+          />
+          <p className="rounded-lg border bg-muted/30 p-3 text-xs leading-relaxed text-muted-foreground">
+            A Civitek organiza a evidência e o fluxo de decisão. A conclusão
+            técnica deve considerar a versão contratual aplicável das normas e o
+            responsável habilitado pela obra.
+          </p>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function StandardCard({
+  code,
+  title,
+  description,
+  areas,
+  items,
+}: {
+  code: string;
+  title: string;
+  description: string;
+  areas: string;
+  items: ComplianceItem[];
+}) {
+  const standardItems = items.filter((item) => item.standardCode === code);
+  const pending = standardItems.filter(
+    (item) => item.status === 'pending',
+  ).length;
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <CardDescription>{code}</CardDescription>
+            <CardTitle className="mt-1 text-lg">{title}</CardTitle>
+          </div>
+          <Badge variant="outline">
+            {getResolvedComplianceRate(standardItems)}%
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-2 text-sm">
+        <p className="leading-relaxed text-muted-foreground">{description}</p>
+        <p className="text-xs font-medium">{areas}</p>
+        <p className="text-xs text-muted-foreground">
+          {standardItems.length} itens · {pending} pendentes
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1083,6 +1544,23 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+function ComplianceStatusBadge({ status }: { status: string }) {
+  const styles: Record<string, string> = {
+    pending: 'border-amber-200 bg-amber-50 text-amber-800',
+    compliant: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+    non_compliant: 'border-red-200 bg-red-50 text-red-800',
+    not_applicable: 'border-slate-200 bg-slate-50 text-slate-700',
+  };
+  return (
+    <Badge
+      variant="outline"
+      className={`shrink-0 ${styles[status] ?? styles.pending}`}
+    >
+      {complianceStatusLabels[status] ?? status}
+    </Badge>
+  );
+}
+
 function SummaryCard({
   icon,
   label,
@@ -1134,7 +1612,7 @@ function ProjectMetric({
   alert = false,
 }: {
   label: string;
-  value: number;
+  value: string | number;
   alert?: boolean;
 }) {
   return (
@@ -1178,6 +1656,37 @@ function CheckRow({ text }: { text: string }) {
       <span>{text}</span>
     </div>
   );
+}
+
+function getResolvedComplianceRate(items: ComplianceItem[]) {
+  const resolved = items.filter((item) =>
+    ['compliant', 'non_compliant'].includes(item.status),
+  );
+  if (resolved.length === 0) return 0;
+  return Math.round(
+    (resolved.filter((item) => item.status === 'compliant').length /
+      resolved.length) *
+      100,
+  );
+}
+
+function getProjectComplianceRate(
+  occurrences: Occurrence[],
+  projectId: string,
+) {
+  const items = occurrences
+    .filter((occurrence) => occurrence.projectId === projectId)
+    .flatMap((occurrence) =>
+      occurrence.complianceChecks.map((check) => ({
+        ...check,
+        occurrenceId: occurrence.id,
+        occurrenceCode: occurrence.code,
+        occurrenceTitle: occurrence.title,
+        projectId: occurrence.projectId,
+        projectName: occurrence.projectName,
+      })),
+    );
+  return getResolvedComplianceRate(items);
 }
 
 function formatDate(value: string) {

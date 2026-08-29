@@ -37,14 +37,6 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import {
   NativeSelect,
   NativeSelectOption,
 } from '@/components/ui/native-select';
@@ -552,43 +544,27 @@ function RoleSwitcher({
 }) {
   const manager = role === 'manager';
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger className="group inline-flex h-10 w-full items-center justify-center gap-2 rounded-full border border-amber-500/40 bg-gradient-to-br from-amber-800 via-amber-700 to-yellow-700 px-4 text-sm font-semibold text-white shadow-[0_10px_28px_-12px_rgba(146,64,14,0.9)] outline-none transition hover:-translate-y-px hover:shadow-[0_14px_34px_-12px_rgba(146,64,14,0.95)] focus-visible:ring-2 focus-visible:ring-amber-500/60 sm:w-auto">
-        {manager ? (
-          <BriefcaseBusiness className="size-4" />
-        ) : (
-          <HardHat className="size-4" />
-        )}
-        Visão do {manager ? 'gestor' : 'engenheiro'}
-        <ChevronDown className="size-4 opacity-75 transition group-data-popup-open:rotate-180" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-56">
-        <DropdownMenuLabel>Alternar visão</DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          className="py-2"
-          onClick={() => changeRole('manager')}
-        >
-          <BriefcaseBusiness />
-          <div>
-            <p className="font-medium">Gestor</p>
-            <p className="text-xs text-muted-foreground">Visão multiobra</p>
-          </div>
-          {manager && <CheckCircle2 className="ml-auto text-amber-700" />}
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          className="py-2"
-          onClick={() => changeRole('engineer')}
-        >
-          <HardHat />
-          <div>
-            <p className="font-medium">Engenheiro</p>
-            <p className="text-xs text-muted-foreground">Operação da obra</p>
-          </div>
-          {!manager && <CheckCircle2 className="ml-auto text-amber-700" />}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <div className="relative flex h-10 w-full items-center rounded-full border border-amber-500/40 bg-gradient-to-br from-amber-800 via-amber-700 to-yellow-700 text-white shadow-[0_10px_28px_-12px_rgba(146,64,14,0.9)] transition hover:-translate-y-px hover:shadow-[0_14px_34px_-12px_rgba(146,64,14,0.95)] focus-within:ring-2 focus-within:ring-amber-500/60 sm:w-auto">
+      {manager ? (
+        <BriefcaseBusiness className="pointer-events-none absolute left-4 size-4" />
+      ) : (
+        <HardHat className="pointer-events-none absolute left-4 size-4" />
+      )}
+      <select
+        aria-label="Alternar visão"
+        className="h-full w-full cursor-pointer appearance-none rounded-full bg-transparent py-0 pr-10 pl-10 text-sm font-semibold outline-none sm:w-auto"
+        value={role}
+        onChange={(event) => changeRole(event.target.value as Role)}
+      >
+        <option className="bg-card text-foreground" value="manager">
+          Visão do gestor
+        </option>
+        <option className="bg-card text-foreground" value="engineer">
+          Visão do engenheiro
+        </option>
+      </select>
+      <ChevronDown className="pointer-events-none absolute right-4 size-4 opacity-80" />
+    </div>
   );
 }
 

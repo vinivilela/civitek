@@ -22,12 +22,24 @@ export type OccurrenceView = {
   source: string;
   reporterName: string;
   reporterPhone: string;
+  projectId: string | null;
   projectName: string | null;
   automaticSummary: string | null;
   normativeReference: string | null;
   createdAt: string;
   evidenceCount: number;
   evidenceUrl: string | null;
+};
+
+export type ProjectView = {
+  id: string;
+  code: string;
+  name: string;
+  address: string | null;
+  status: string;
+  occurrenceCount: number;
+  openCount: number;
+  highSeverityCount: number;
 };
 
 export type InboundOccurrence = {
@@ -55,6 +67,7 @@ export async function listOccurrences(): Promise<OccurrenceView[]> {
       source: occurrences.source,
       reporterName: occurrences.reporterName,
       reporterPhone: occurrences.reporterPhone,
+      projectId: occurrences.projectId,
       projectName: projects.name,
       automaticSummary: occurrences.automaticSummary,
       normativeReference: occurrences.normativeReference,
@@ -76,11 +89,51 @@ export async function listOccurrences(): Promise<OccurrenceView[]> {
     const matchingEvidence = evidenceRows.filter(
       (evidence) => evidence.occurrenceId === row.id,
     );
-    const storedEvidence = matchingEvidence.find((evidence) => evidence.objectKey);
+    const storedEvidence = matchingEvidence.find(
+      (evidence) => evidence.objectKey,
+    );
     return {
       ...row,
       evidenceCount: matchingEvidence.length,
       evidenceUrl: storedEvidence ? `/api/evidence/${storedEvidence.id}` : null,
+    };
+  });
+}
+
+export async function listProjects(): Promise<ProjectView[]> {
+  await ensureDatabase();
+  const db = getDb();
+  const projectRows = await db
+    .select({
+      id: projects.id,
+      code: projects.code,
+      name: projects.name,
+      address: projects.address,
+      status: projects.status,
+    })
+    .from(projects);
+  const occurrenceRows = await db
+    .select({
+      projectId: occurrences.projectId,
+      status: occurrences.status,
+      severity: occurrences.severity,
+    })
+    .from(occurrences);
+
+  return projectRows.map((project) => {
+    const projectOccurrences = occurrenceRows.filter(
+      (occurrence) => occurrence.projectId === project.id,
+    );
+    return {
+      ...project,
+      occurrenceCount: projectOccurrences.length,
+      openCount: projectOccurrences.filter(
+        (occurrence) => occurrence.status !== 'closed',
+      ).length,
+      highSeverityCount: projectOccurrences.filter(
+        (occurrence) =>
+          occurrence.severity === 'high' && occurrence.status !== 'closed',
+      ).length,
     };
   });
 }
@@ -106,7 +159,11 @@ export async function createOccurrenceFromWhatsApp(input: InboundOccurrence) {
     .limit(1);
 
   if (existing[0]) {
-    return { ...existing[0], created: false, projectName: null as string | null };
+    return {
+      ...existing[0],
+      created: false,
+      projectName: null as string | null,
+    };
   }
 
   const assignmentRows = await db
@@ -131,7 +188,8 @@ export async function createOccurrenceFromWhatsApp(input: InboundOccurrence) {
   const id = crypto.randomUUID();
   const code = createOccurrenceCode();
   const now = new Date().toISOString();
-  const reporterName = assignment?.workerName ?? input.contactName ?? 'Contato não identificado';
+  const reporterName =
+    assignment?.workerName ?? input.contactName ?? 'Contato não identificado';
 
   await db.insert(occurrences).values({
     id,
@@ -171,7 +229,9 @@ export async function createOccurrenceFromWhatsApp(input: InboundOccurrence) {
     occurrenceId: id,
     actor: 'whatsapp-webhook',
     action: 'occurrence.created',
-    detail: assignment ? 'Telefone vinculado automaticamente à obra.' : 'Telefone sem vínculo de obra.',
+    detail: assignment
+      ? 'Telefone vinculado automaticamente à obra.'
+      : 'Telefone sem vínculo de obra.',
     createdAt: now,
   });
 
@@ -260,7 +320,8 @@ function classifyOccurrence(text: string) {
       location,
       category: 'Impermeabilização',
       severity: 'high',
-      summary: 'Possível falha de impermeabilização identificada no relato de campo.',
+      summary:
+        'Possível falha de impermeabilização identificada no relato de campo.',
       normativeReference:
         'Referência técnica candidata: impermeabilização. Validar com o responsável técnico.',
     };
@@ -284,7 +345,8 @@ function classifyOccurrence(text: string) {
       location,
       category: 'Instalações',
       severity: 'medium',
-      summary: 'Irregularidade de instalação classificada para triagem da engenharia.',
+      summary:
+        'Irregularidade de instalação classificada para triagem da engenharia.',
       normativeReference:
         'Referência técnica candidata: instalações. Confirmar disciplina e projeto aplicável.',
     };
@@ -296,7 +358,8 @@ function classifyOccurrence(text: string) {
       location,
       category: 'Segurança',
       severity: 'high',
-      summary: 'Possível risco de segurança; priorizar avaliação da equipe responsável.',
+      summary:
+        'Possível risco de segurança; priorizar avaliação da equipe responsável.',
       normativeReference:
         'Referência técnica candidata: segurança do trabalho. Validar com o técnico responsável.',
     };

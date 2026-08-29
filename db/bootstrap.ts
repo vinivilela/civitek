@@ -134,6 +134,21 @@ async function seedDemoData(database: D1Database) {
       ),
     database
       .prepare(
+        `INSERT OR IGNORE INTO projects
+          (id, company_id, code, name, address, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        'project-horizonte',
+        'company-demo',
+        'HORIZONTE',
+        'Residencial Horizonte',
+        'Campinas, SP',
+        'active',
+        createdAt,
+      ),
+    database
+      .prepare(
         `INSERT OR IGNORE INTO phone_assignments
           (id, phone_e164, worker_name, project_id, active, created_at)
          VALUES (?, ?, ?, ?, ?, ?)`,
@@ -146,6 +161,72 @@ async function seedDemoData(database: D1Database) {
         1,
         createdAt,
       ),
+    database
+      .prepare(
+        `INSERT OR IGNORE INTO phone_assignments
+          (id, phone_e164, worker_name, project_id, active, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        'phone-ana',
+        '5511966666666',
+        'Ana Paula',
+        'project-horizonte',
+        1,
+        createdAt,
+      ),
+    seedOccurrence(database, {
+      id: 'occurrence-045',
+      code: 'OC-045',
+      projectId: 'project-horizonte',
+      reporter: 'Ana Paula',
+      phone: '5511966666666',
+      title: 'Guarda-corpo com fixação pendente',
+      description:
+        'Fixação do guarda-corpo está solta no corredor do quarto andar.',
+      location: 'Bloco C · 4º andar · Corredor',
+      category: 'Segurança',
+      severity: 'high',
+      status: 'new',
+      summary:
+        'Possível risco de segurança identificado em elemento de proteção coletiva.',
+      norm: 'Referência técnica candidata: proteção coletiva. Validar com o técnico de segurança.',
+      createdAt: '2026-08-28T23:05:00.000Z',
+    }),
+    seedOccurrence(database, {
+      id: 'occurrence-044',
+      code: 'OC-044',
+      projectId: 'project-horizonte',
+      reporter: 'Rafael Souza',
+      phone: '5511955555555',
+      title: 'Ponto elétrico divergente do projeto',
+      description:
+        'Tomada instalada fora da posição indicada no projeto executivo.',
+      location: 'Bloco B · Apto 108 · Cozinha',
+      category: 'Instalações',
+      severity: 'medium',
+      status: 'in_progress',
+      summary:
+        'Divergência entre instalação elétrica executada e projeto de referência.',
+      norm: 'Referência técnica candidata: instalações elétricas. Confirmar no projeto executivo.',
+      createdAt: '2026-08-28T21:18:00.000Z',
+    }),
+    seedOccurrence(database, {
+      id: 'occurrence-043',
+      code: 'OC-043',
+      projectId: 'project-horizonte',
+      reporter: 'Ana Paula',
+      phone: '5511966666666',
+      title: 'Rejunte revisado após inspeção',
+      description: 'Rejunte corrigido e conferido pela equipe de qualidade.',
+      location: 'Bloco A · Apto 205 · Banheiro',
+      category: 'Acabamento',
+      severity: 'low',
+      status: 'closed',
+      summary: 'Correção concluída e validada pela equipe responsável.',
+      norm: null,
+      createdAt: '2026-08-27T18:22:00.000Z',
+    }),
     seedOccurrence(database, {
       id: 'occurrence-042',
       code: 'OC-042',
@@ -183,7 +264,8 @@ async function seedDemoData(database: D1Database) {
       reporter: 'Márcio Alves',
       phone: '5511977777777',
       title: 'Tubulação sem identificação',
-      description: 'Tubulação do hall técnico está sem etiqueta de identificação.',
+      description:
+        'Tubulação do hall técnico está sem etiqueta de identificação.',
       location: 'Torre A · 2º subsolo · Hall técnico',
       category: 'Instalações',
       severity: 'medium',
@@ -203,7 +285,8 @@ async function seedDemoData(database: D1Database) {
       category: 'Acabamento',
       severity: 'low',
       status: 'closed',
-      summary: 'Evidência de correção recebida para encerramento da ocorrência.',
+      summary:
+        'Evidência de correção recebida para encerramento da ocorrência.',
       norm: null,
       createdAt: '2026-08-27T19:48:00.000Z',
     }),
@@ -231,6 +314,7 @@ function seedOccurrence(
   data: {
     id: string;
     code: string;
+    projectId?: string;
     reporter: string;
     phone: string;
     title: string;
@@ -256,7 +340,7 @@ function seedOccurrence(
       data.id,
       data.code,
       'company-demo',
-      'project-aurora',
+      data.projectId ?? 'project-aurora',
       data.phone,
       data.reporter,
       data.title,

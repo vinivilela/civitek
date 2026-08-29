@@ -6,9 +6,11 @@ import {
   Activity,
   AudioLines,
   BookOpenCheck,
+  BriefcaseBusiness,
   Building2,
   Camera,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   CircleAlert,
   ClipboardCheck,
@@ -23,7 +25,6 @@ import {
   Search,
   ShieldCheck,
   SlidersHorizontal,
-  UserCog,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -35,6 +36,14 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   NativeSelect,
   NativeSelectOption,
@@ -143,15 +152,6 @@ const complianceStatusLabels: Record<string, string> = {
   compliant: 'Conforme',
   non_compliant: 'Não conforme',
   not_applicable: 'Não aplicável',
-};
-
-const viewTitles: Record<View, string> = {
-  dashboard: 'Resumo para decisão',
-  occurrences: 'Ocorrências da obra',
-  projects: 'Obras',
-  compliance: 'Conformidade',
-  updates: 'Atualizações do campo',
-  whatsapp: 'Integração com WhatsApp',
 };
 
 export default function Dashboard() {
@@ -299,10 +299,6 @@ export default function Dashboard() {
     ) ??
     filteredOccurrences[0] ??
     null;
-  const selectedProject = projects.find(
-    (project) => project.id === selectedProjectId,
-  );
-
   async function moveToTreatment() {
     if (!selectedOccurrence) return;
     setUpdatingOccurrence(true);
@@ -394,130 +390,55 @@ export default function Dashboard() {
   }
 
   const navItems = getNavItems(role);
-  const contextLabel =
-    role === 'manager'
-      ? activeView === 'occurrences' && selectedProject
-        ? selectedProject.name
-        : 'Portfólio da construtora'
-      : (selectedProject?.name ?? 'Obra selecionada');
 
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto grid min-h-screen max-w-[1580px] lg:grid-cols-[216px_minmax(0,1fr)]">
-        <aside className="hidden border-r border-sidebar-border bg-sidebar px-4 py-5 text-sidebar-foreground lg:flex lg:flex-col">
+      <div className="mx-auto min-h-screen max-w-[1580px]">
+        <header className="flex flex-col gap-4 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
           <Brand />
-          <nav className="mt-9 space-y-1" aria-label="Navegação principal">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            {role === 'engineer' && (
+              <NativeSelect
+                className="w-full border-amber-900/15 bg-card/70 sm:w-52"
+                value={selectedProjectId}
+                onChange={(event) => {
+                  setSelectedProjectId(event.target.value);
+                  setUpdatesProjectId(event.target.value);
+                }}
+                aria-label="Obra do engenheiro"
+              >
+                {projects.map((project) => (
+                  <NativeSelectOption key={project.id} value={project.id}>
+                    {project.name}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
+            )}
+            <RoleSwitcher role={role} changeRole={changeRole} />
+          </div>
+        </header>
+
+        <div className="border-y bg-card/55 px-4 py-2.5 backdrop-blur-sm sm:px-6 lg:px-8">
+          <nav
+            className="flex w-fit max-w-full gap-1 overflow-x-auto rounded-full border border-amber-900/10 bg-background/60 p-1 shadow-sm"
+            aria-label="Navegação principal"
+          >
             {navItems.map((item) => (
-              <NavButton
+              <SegmentedNavButton
                 key={item.view}
                 active={activeView === item.view}
                 icon={item.icon}
                 onClick={() => setActiveView(item.view)}
               >
                 {item.label}
-              </NavButton>
+              </SegmentedNavButton>
             ))}
           </nav>
-          <div className="mt-auto space-y-3">
-            <div className="rounded-lg border border-sidebar-border px-3 py-2.5">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-sidebar-foreground/55">
-                Perfil atual
-              </p>
-              <div className="mt-1.5 flex items-center gap-2 text-sm font-medium">
-                <UserCog className="size-4" />
-                {role === 'manager' ? 'Gestor' : 'Engenheiro'}
-              </div>
-            </div>
-            <div className="rounded-lg border border-sidebar-border bg-white/[0.05] p-3">
-              <div className="flex items-center gap-2">
-                <span
-                  className={`size-2 rounded-full ${integration?.configured ? 'bg-emerald-400' : 'bg-amber-400'}`}
-                />
-                <p className="text-xs font-semibold">
-                  {integration?.configured
-                    ? 'WhatsApp conectado'
-                    : 'Webhook pronto'}
-                </p>
-              </div>
-              <p className="mt-2 text-xs leading-relaxed text-sidebar-foreground/65">
-                Texto, foto e áudio entram no histórico da obra.
-              </p>
-            </div>
-          </div>
-        </aside>
+        </div>
 
-        <section className="min-w-0 px-4 py-4 sm:px-6 lg:px-8 lg:py-6">
-          <header className="flex flex-col gap-4 border-b pb-5 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3">
-              <div className="lg:hidden">
-                <Brand compact />
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                  {contextLabel}
-                </p>
-                <h1 className="mt-1 font-heading text-2xl font-semibold tracking-tight">
-                  {viewTitles[activeView]}
-                </h1>
-              </div>
-            </div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              {role === 'engineer' && (
-                <NativeSelect
-                  className="w-full sm:w-52"
-                  value={selectedProjectId}
-                  onChange={(event) => {
-                    setSelectedProjectId(event.target.value);
-                    setUpdatesProjectId(event.target.value);
-                  }}
-                  aria-label="Obra do engenheiro"
-                >
-                  {projects.map((project) => (
-                    <NativeSelectOption key={project.id} value={project.id}>
-                      {project.name}
-                    </NativeSelectOption>
-                  ))}
-                </NativeSelect>
-              )}
-              <NativeSelect
-                className="w-full sm:w-44"
-                value={role}
-                onChange={(event) => changeRole(event.target.value as Role)}
-                aria-label="Perfil de trabalho"
-              >
-                <NativeSelectOption value="manager">
-                  Visão do gestor
-                </NativeSelectOption>
-                <NativeSelectOption value="engineer">
-                  Visão do engenheiro
-                </NativeSelectOption>
-              </NativeSelect>
-              <Badge
-                variant="outline"
-                className="hidden h-8 px-3 xl:inline-flex"
-              >
-                <ShieldCheck className="size-3.5" /> Autenticado
-              </Badge>
-            </div>
-          </header>
-
-          <nav
-            className="-mx-1 mt-3 flex gap-1 overflow-x-auto pb-1 lg:hidden"
-            aria-label="Navegação principal"
-          >
-            {navItems.map((item) => (
-              <MobileNavButton
-                key={item.view}
-                active={activeView === item.view}
-                onClick={() => setActiveView(item.view)}
-              >
-                {item.shortLabel}
-              </MobileNavButton>
-            ))}
-          </nav>
-
+        <section className="min-w-0 px-4 pb-8 sm:px-6 lg:px-8">
           {notice && (
-            <div className="mt-4 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-sm text-teal-950">
+            <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
               {notice}
             </div>
           )}
@@ -609,23 +530,65 @@ export default function Dashboard() {
   );
 }
 
-function Brand({ compact = false }: { compact?: boolean }) {
+function Brand() {
   return (
-    <div className="flex items-center gap-3 px-2">
-      <div className="grid size-9 place-items-center rounded-lg bg-primary text-primary-foreground">
+    <div className="flex items-center gap-3">
+      <div className="grid size-10 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm">
         <HardHat className="size-5" />
       </div>
-      <div>
-        <p className="font-heading text-[17px] font-semibold tracking-tight">
-          CiviTek
-        </p>
-        {!compact && (
-          <p className="text-xs text-sidebar-foreground/60">
-            Qualidade em campo
-          </p>
-        )}
-      </div>
+      <p className="font-heading text-xl font-semibold tracking-[-0.035em]">
+        CiviTek
+      </p>
     </div>
+  );
+}
+
+function RoleSwitcher({
+  changeRole,
+  role,
+}: {
+  changeRole: (role: Role) => void;
+  role: Role;
+}) {
+  const manager = role === 'manager';
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger className="group inline-flex h-10 w-full items-center justify-center gap-2 rounded-full border border-amber-500/40 bg-gradient-to-br from-amber-800 via-amber-700 to-yellow-700 px-4 text-sm font-semibold text-white shadow-[0_10px_28px_-12px_rgba(146,64,14,0.9)] outline-none transition hover:-translate-y-px hover:shadow-[0_14px_34px_-12px_rgba(146,64,14,0.95)] focus-visible:ring-2 focus-visible:ring-amber-500/60 sm:w-auto">
+        {manager ? (
+          <BriefcaseBusiness className="size-4" />
+        ) : (
+          <HardHat className="size-4" />
+        )}
+        Visão do {manager ? 'gestor' : 'engenheiro'}
+        <ChevronDown className="size-4 opacity-75 transition group-data-popup-open:rotate-180" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-56">
+        <DropdownMenuLabel>Alternar visão</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          className="py-2"
+          onClick={() => changeRole('manager')}
+        >
+          <BriefcaseBusiness />
+          <div>
+            <p className="font-medium">Gestor</p>
+            <p className="text-xs text-muted-foreground">Visão multiobra</p>
+          </div>
+          {manager && <CheckCircle2 className="ml-auto text-amber-700" />}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          className="py-2"
+          onClick={() => changeRole('engineer')}
+        >
+          <HardHat />
+          <div>
+            <p className="font-medium">Engenheiro</p>
+            <p className="text-xs text-muted-foreground">Operação da obra</p>
+          </div>
+          {!manager && <CheckCircle2 className="ml-auto text-amber-700" />}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -658,7 +621,7 @@ function ManagerDashboard({
     <>
       <div className="grid gap-3 py-5 sm:grid-cols-3">
         <SummaryCard
-          icon={<Building2 className="size-4 text-teal-700" />}
+          icon={<Building2 className="size-4 text-amber-800" />}
           label="Obras ativas"
           value={loading ? '—' : projects.length}
           context="Portfólio acompanhado"
@@ -1077,9 +1040,9 @@ function OccurrenceDetail({
             </dl>
 
             {selected.automaticSummary && (
-              <div className="rounded-lg border border-teal-200 bg-teal-50 p-3">
-                <p className="text-xs font-semibold text-teal-800">TRIAGEM</p>
-                <p className="mt-1 text-sm leading-relaxed text-teal-950">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                <p className="text-xs font-semibold text-amber-800">TRIAGEM</p>
+                <p className="mt-1 text-sm leading-relaxed text-amber-950">
                   {selected.automaticSummary}
                 </p>
               </div>
@@ -1647,7 +1610,7 @@ function UpdateFeedItem({
           className={`grid size-10 shrink-0 place-items-center rounded-lg ${
             outbound
               ? 'bg-emerald-50 text-emerald-700'
-              : 'bg-teal-50 text-teal-700'
+              : 'bg-amber-50 text-amber-800'
           }`}
         >
           {icon}
@@ -1666,7 +1629,7 @@ function UpdateFeedItem({
             </Badge>
           </div>
           {update.messageType === 'audio' && (
-            <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-teal-800">
+            <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-amber-800">
               Transcrição do áudio
             </p>
           )}
@@ -1685,7 +1648,7 @@ function UpdateFeedItem({
               />
             ) : (
               <div className="mt-3 flex items-center gap-3 rounded-lg border bg-muted/30 p-3">
-                <div className="grid size-10 place-items-center rounded-lg bg-teal-50 text-teal-700">
+                <div className="grid size-10 place-items-center rounded-lg bg-amber-50 text-amber-800">
                   <ImageIcon className="size-5" />
                 </div>
                 <div>
@@ -1940,7 +1903,7 @@ function FlowStep({
 }) {
   return (
     <div className="flex items-start gap-3">
-      <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-teal-50 text-teal-700 [&_svg]:size-4">
+      <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-amber-50 text-amber-800 [&_svg]:size-4">
         {icon}
       </div>
       <div>
@@ -2037,7 +2000,7 @@ function EmptyState({ text }: { text: string }) {
   );
 }
 
-function NavButton({
+function SegmentedNavButton({
   active,
   children,
   icon,
@@ -2049,39 +2012,19 @@ function NavButton({
   onClick: () => void;
 }) {
   return (
-    <Button
-      variant={active ? 'default' : 'ghost'}
+    <button
+      type="button"
+      aria-pressed={active}
       className={
         active
-          ? 'w-full justify-start bg-sidebar-primary text-sidebar-primary-foreground'
-          : 'w-full justify-start text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
+          ? 'inline-flex h-9 shrink-0 items-center gap-2 rounded-full border border-amber-700/40 bg-amber-800 px-3.5 text-sm font-medium text-white shadow-sm'
+          : 'inline-flex h-9 shrink-0 items-center gap-2 rounded-full border border-transparent bg-transparent px-3.5 text-sm font-medium text-muted-foreground transition hover:border-amber-900/10 hover:bg-amber-900/[0.05] hover:text-foreground'
       }
       onClick={onClick}
     >
-      {icon}
+      <span className="[&_svg]:size-3.5">{icon}</span>
       {children}
-    </Button>
-  );
-}
-
-function MobileNavButton({
-  active,
-  children,
-  onClick,
-}: {
-  active: boolean;
-  children: React.ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <Button
-      size="sm"
-      variant={active ? 'default' : 'ghost'}
-      className="shrink-0"
-      onClick={onClick}
-    >
-      {children}
-    </Button>
+    </button>
   );
 }
 
@@ -2122,32 +2065,27 @@ function getNavItems(role: Role) {
     return [
       {
         view: 'dashboard' as View,
-        label: 'Painel',
-        shortLabel: 'Painel',
+        label: 'Resumo',
         icon: <LayoutDashboard />,
       },
       {
         view: 'projects' as View,
         label: 'Obras',
-        shortLabel: 'Obras',
         icon: <Building2 />,
       },
       {
         view: 'compliance' as View,
         label: 'Conformidade',
-        shortLabel: 'Normas',
         icon: <BookOpenCheck />,
       },
       {
         view: 'updates' as View,
         label: 'Atualizações',
-        shortLabel: 'Campo',
         icon: <MessagesSquare />,
       },
       {
         view: 'whatsapp' as View,
         label: 'Integração',
-        shortLabel: 'Integração',
         icon: <MessageCircleMore />,
       },
     ];
@@ -2155,32 +2093,27 @@ function getNavItems(role: Role) {
   return [
     {
       view: 'dashboard' as View,
-      label: 'Painel',
-      shortLabel: 'Painel',
+      label: 'Resumo',
       icon: <LayoutDashboard />,
     },
     {
       view: 'occurrences' as View,
       label: 'Ocorrências',
-      shortLabel: 'Ocorrências',
       icon: <ClipboardCheck />,
     },
     {
       view: 'compliance' as View,
       label: 'Conformidade',
-      shortLabel: 'Normas',
       icon: <BookOpenCheck />,
     },
     {
       view: 'updates' as View,
       label: 'Atualizações',
-      shortLabel: 'Campo',
       icon: <MessagesSquare />,
     },
     {
       view: 'whatsapp' as View,
       label: 'Integração',
-      shortLabel: 'Integração',
       icon: <MessageCircleMore />,
     },
   ];

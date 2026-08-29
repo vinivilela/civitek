@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import {
   Activity,
@@ -391,7 +391,7 @@ export default function Dashboard() {
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             {role === 'engineer' && (
               <NativeSelect
-                className="w-full border-amber-900/15 bg-card/70 sm:w-52"
+                className="w-full sm:w-52 [&_[data-slot=native-select]]:h-10 [&_[data-slot=native-select]]:rounded-full [&_[data-slot=native-select]]:border-amber-900/15 [&_[data-slot=native-select]]:bg-card/70 [&_[data-slot=native-select]]:pl-4"
                 value={selectedProjectId}
                 onChange={(event) => {
                   setSelectedProjectId(event.target.value);
@@ -543,28 +543,120 @@ function RoleSwitcher({
   role: Role;
 }) {
   const manager = role === 'manager';
+  const [open, setOpen] = useState(false);
+  const switcherRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function closeOnOutsideClick(event: PointerEvent) {
+      if (!switcherRef.current?.contains(event.target as Node)) setOpen(false);
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') setOpen(false);
+    }
+
+    document.addEventListener('pointerdown', closeOnOutsideClick);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsideClick);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [open]);
+
+  function selectRole(nextRole: Role) {
+    changeRole(nextRole);
+    setOpen(false);
+  }
+
   return (
-    <div className="relative flex h-10 w-full items-center rounded-full border border-amber-500/40 bg-gradient-to-br from-amber-800 via-amber-700 to-yellow-700 text-white shadow-[0_10px_28px_-12px_rgba(146,64,14,0.9)] transition hover:-translate-y-px hover:shadow-[0_14px_34px_-12px_rgba(146,64,14,0.95)] focus-within:ring-2 focus-within:ring-amber-500/60 sm:w-auto">
-      {manager ? (
-        <BriefcaseBusiness className="pointer-events-none absolute left-4 size-4" />
-      ) : (
-        <HardHat className="pointer-events-none absolute left-4 size-4" />
-      )}
-      <select
-        aria-label="Alternar visão"
-        className="h-full w-full cursor-pointer appearance-none rounded-full bg-transparent py-0 pr-10 pl-10 text-sm font-semibold outline-none sm:w-auto"
-        value={role}
-        onChange={(event) => changeRole(event.target.value as Role)}
+    <div ref={switcherRef} className="relative w-full sm:w-auto">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        className="group flex h-10 w-full items-center justify-center gap-2 rounded-full border border-amber-500/40 bg-gradient-to-br from-amber-800 via-amber-700 to-yellow-700 px-4 text-sm font-semibold text-white shadow-[0_10px_28px_-12px_rgba(146,64,14,0.9)] outline-none transition hover:-translate-y-px hover:shadow-[0_14px_34px_-12px_rgba(146,64,14,0.95)] focus-visible:ring-2 focus-visible:ring-amber-500/60 sm:w-auto"
+        onClick={() => setOpen((current) => !current)}
       >
-        <option className="bg-card text-foreground" value="manager">
-          Visão do gestor
-        </option>
-        <option className="bg-card text-foreground" value="engineer">
-          Visão do engenheiro
-        </option>
-      </select>
-      <ChevronDown className="pointer-events-none absolute right-4 size-4 opacity-80" />
+        {manager ? (
+          <BriefcaseBusiness className="size-4" />
+        ) : (
+          <HardHat className="size-4" />
+        )}
+        Visão do {manager ? 'gestor' : 'engenheiro'}
+        <ChevronDown
+          className={`size-4 opacity-80 transition ${open ? 'rotate-180' : ''}`}
+        />
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          aria-label="Alternar visão"
+          className="absolute top-full right-0 z-50 mt-2 w-full min-w-60 rounded-2xl border border-amber-900/15 bg-card/95 p-1.5 text-card-foreground shadow-[0_18px_48px_-20px_rgba(69,26,3,0.65)] backdrop-blur-xl sm:w-64"
+        >
+          <RoleOption
+            active={manager}
+            description="Visão consolidada das obras"
+            icon={<BriefcaseBusiness />}
+            label="Visão do gestor"
+            onClick={() => selectRole('manager')}
+          />
+          <RoleOption
+            active={!manager}
+            description="Operação e conformidade da obra"
+            icon={<HardHat />}
+            label="Visão do engenheiro"
+            onClick={() => selectRole('engineer')}
+          />
+        </div>
+      )}
     </div>
+  );
+}
+
+function RoleOption({
+  active,
+  description,
+  icon,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  description: string;
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      className={
+        active
+          ? 'flex w-full items-center gap-3 rounded-xl bg-gradient-to-r from-amber-800 to-amber-700 px-3 py-2.5 text-left text-white shadow-sm'
+          : 'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-amber-900/[0.06]'
+      }
+      onClick={onClick}
+    >
+      <span
+        className={`grid size-8 shrink-0 place-items-center rounded-lg [&_svg]:size-4 ${
+          active ? 'bg-white/12' : 'bg-amber-100 text-amber-900'
+        }`}
+      >
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-semibold">{label}</span>
+        <span
+          className={`block text-xs ${active ? 'text-amber-100' : 'text-muted-foreground'}`}
+        >
+          {description}
+        </span>
+      </span>
+      {active && <CheckCircle2 className="size-4 shrink-0" />}
+    </button>
   );
 }
 

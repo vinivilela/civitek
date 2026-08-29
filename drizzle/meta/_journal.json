@@ -15,6 +15,13 @@
       "when": 1788001785507,
       "tag": "0001_watery_revanche",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1788021504319,
+      "tag": "0002_faithful_cammi",
+      "breakpoints": true
     }
   ]
 }

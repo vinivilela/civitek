@@ -390,21 +390,14 @@ export default function Dashboard() {
           <Brand />
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             {role === 'engineer' && (
-              <NativeSelect
-                className="w-full sm:w-52 [&_[data-slot=native-select]]:h-10 [&_[data-slot=native-select]]:rounded-full [&_[data-slot=native-select]]:border-amber-900/15 [&_[data-slot=native-select]]:bg-card/70 [&_[data-slot=native-select]]:pl-4"
-                value={selectedProjectId}
-                onChange={(event) => {
-                  setSelectedProjectId(event.target.value);
-                  setUpdatesProjectId(event.target.value);
+              <ProjectSwitcher
+                projects={projects}
+                selectedProjectId={selectedProjectId}
+                onChange={(projectId) => {
+                  setSelectedProjectId(projectId);
+                  setUpdatesProjectId(projectId);
                 }}
-                aria-label="Obra do engenheiro"
-              >
-                {projects.map((project) => (
-                  <NativeSelectOption key={project.id} value={project.id}>
-                    {project.name}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
+              />
             )}
             <RoleSwitcher role={role} changeRole={changeRole} />
           </div>
@@ -531,6 +524,109 @@ function Brand() {
       <p className="font-heading text-xl font-semibold tracking-[-0.035em]">
         CiviTek
       </p>
+    </div>
+  );
+}
+
+function ProjectSwitcher({
+  onChange,
+  projects,
+  selectedProjectId,
+}: {
+  onChange: (projectId: string) => void;
+  projects: Project[];
+  selectedProjectId: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const switcherRef = useRef<HTMLDivElement>(null);
+  const selectedProject =
+    projects.find((project) => project.id === selectedProjectId) ?? projects[0];
+
+  useEffect(() => {
+    if (!open) return;
+
+    function closeOnOutsideClick(event: PointerEvent) {
+      if (!switcherRef.current?.contains(event.target as Node)) setOpen(false);
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') setOpen(false);
+    }
+
+    document.addEventListener('pointerdown', closeOnOutsideClick);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsideClick);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [open]);
+
+  function selectProject(projectId: string) {
+    onChange(projectId);
+    setOpen(false);
+  }
+
+  return (
+    <div ref={switcherRef} className="relative w-full sm:w-56">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        className="flex h-10 w-full items-center gap-2 rounded-full border border-amber-900/15 bg-card/80 px-4 text-sm font-medium shadow-sm outline-none transition hover:border-amber-700/25 hover:bg-card focus-visible:ring-2 focus-visible:ring-amber-500/40"
+        onClick={() => setOpen((current) => !current)}
+      >
+        <Building2 className="size-4 shrink-0 text-amber-800" />
+        <span className="min-w-0 flex-1 truncate text-left">
+          {selectedProject?.name ?? 'Selecionar obra'}
+        </span>
+        <ChevronDown
+          className={`size-4 shrink-0 text-muted-foreground transition ${open ? 'rotate-180' : ''}`}
+        />
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          aria-label="Selecionar obra"
+          className="absolute top-full left-0 z-50 mt-2 w-full min-w-64 rounded-2xl border border-amber-900/15 bg-card/95 p-1.5 text-card-foreground shadow-[0_18px_48px_-20px_rgba(69,26,3,0.55)] backdrop-blur-xl"
+        >
+          {projects.map((project) => {
+            const active = project.id === selectedProject?.id;
+            return (
+              <button
+                type="button"
+                role="menuitem"
+                key={project.id}
+                className={
+                  active
+                    ? 'flex w-full items-center gap-3 rounded-xl bg-amber-800 px-3 py-2.5 text-left text-white shadow-sm'
+                    : 'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-amber-900/[0.06]'
+                }
+                onClick={() => selectProject(project.id)}
+              >
+                <span
+                  className={`grid size-8 shrink-0 place-items-center rounded-lg ${
+                    active ? 'bg-white/12' : 'bg-amber-100 text-amber-900'
+                  }`}
+                >
+                  <Building2 className="size-4" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold">
+                    {project.name}
+                  </span>
+                  <span
+                    className={`block truncate text-xs ${active ? 'text-amber-100' : 'text-muted-foreground'}`}
+                  >
+                    {project.address ?? project.code}
+                  </span>
+                </span>
+                {active && <CheckCircle2 className="size-4 shrink-0" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,10 +1,15 @@
 import { env } from 'cloudflare:workers';
+import { getChatGPTUser } from '@/app/chatgpt-auth';
 import { getEvidenceObjectKey } from '@/db/repository';
 
 export async function GET(
   _request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
+  if (!(await getChatGPTUser())) {
+    return Response.json({ error: 'Não autorizado.' }, { status: 401 });
+  }
+
   const { id } = await context.params;
   const objectKey = await getEvidenceObjectKey(id);
   if (!objectKey) {

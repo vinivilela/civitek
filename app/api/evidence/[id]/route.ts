@@ -1,19 +1,23 @@
 import { env } from 'cloudflare:workers';
-import { getChatGPTUser } from '@/app/chatgpt-auth';
 import { getEvidenceObjectKey } from '@/db/repository';
+import { getTenantScope } from '@/lib/tenant';
 
 export async function GET(
   _request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
-  if (!(await getChatGPTUser())) {
+  const scope = await getTenantScope();
+  if (!scope) {
     return Response.json({ error: 'Não autorizado.' }, { status: 401 });
   }
 
   const { id } = await context.params;
-  const objectKey = await getEvidenceObjectKey(id);
+  const objectKey = await getEvidenceObjectKey(scope, id);
   if (!objectKey) {
-    return Response.json({ error: 'Evidência não encontrada.' }, { status: 404 });
+    return Response.json(
+      { error: 'Evidência não encontrada.' },
+      { status: 404 },
+    );
   }
 
   const object = await env.FILES.get(objectKey);

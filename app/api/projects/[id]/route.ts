@@ -1,5 +1,5 @@
-import { getChatGPTUser } from '@/app/chatgpt-auth';
 import { updateProjectBaseline } from '@/db/repository';
+import { getTenantScope } from '@/lib/tenant';
 
 const allowedStages = new Set([
   'Planejamento',
@@ -15,7 +15,8 @@ export async function PATCH(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
-  if (!(await getChatGPTUser())) {
+  const scope = await getTenantScope();
+  if (!scope) {
     return Response.json({ error: 'Não autorizado.' }, { status: 401 });
   }
 
@@ -45,7 +46,7 @@ export async function PATCH(
       throw new Error('O nome do responsável deve ter até 80 caracteres.');
     }
 
-    await updateProjectBaseline(id, {
+    await updateProjectBaseline(scope, id, {
       pilotStartedAt,
       currentStage,
       summary,

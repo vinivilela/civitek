@@ -1,15 +1,16 @@
-import { getChatGPTUser } from '@/app/chatgpt-auth';
 import { listProjectHistory, listProjectUpdates } from '@/db/repository';
+import { getTenantScope } from '@/lib/tenant';
 
 export async function GET() {
-  if (!(await getChatGPTUser())) {
+  const scope = await getTenantScope();
+  if (!scope) {
     return Response.json({ error: 'Não autorizado.' }, { status: 401 });
   }
 
   try {
     const [updates, history] = await Promise.all([
-      listProjectUpdates(),
-      listProjectHistory(),
+      listProjectUpdates(scope),
+      listProjectHistory(scope),
     ]);
     return Response.json({ updates, history });
   } catch (error) {

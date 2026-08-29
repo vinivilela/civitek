@@ -1,5 +1,6 @@
 import { and, desc, eq } from 'drizzle-orm';
-import { ensureDatabase } from './bootstrap';
+import type { TenantScope } from '@/lib/tenant';
+import { DEMO_COMPANY_ID, ensureDatabase } from './bootstrap';
 import { getDb } from './index';
 import {
   auditEvents,
@@ -12,6 +13,21 @@ import {
   projects,
   whatsappMessages,
 } from './schema';
+
+/**
+ * Every read and write in this file is scoped by `TenantScope.companyId`. The
+ * scope is derived from the authenticated user in `lib/tenant.ts` and is never
+ * taken from a request. Do not add a query here that does not filter on it: the
+ * child tables carry `company_id` precisely so isolation never depends on a
+ * join being written correctly.
+ */
+
+/**
+ * Inbound WhatsApp traffic whose phone number matches no company. It is parked
+ * here instead of being attributed to a guess, so an unknown number can never
+ * write into a real customer's history.
+ */
+export const UNASSIGNED_COMPANY_ID = 'company-unassigned';
 
 export type ComplianceCheckView = {
   id: string;
@@ -98,7 +114,9 @@ export type InboundOccurrence = {
   rawPayload: string;
 };
 
-export async function listOccurrences(): Promise<OccurrenceView[]> {
+export async function listOccurrences(
+  scope: TenantScope,
+): Promise<OccurrenceView[]> {
   await ensureDatabase();
   const db = getDb();
   const rows = await db
@@ -122,6 +140,7 @@ export async function listOccurrences(): Promise<OccurrenceView[]> {
     })
     .from(occurrences)
     .leftJoin(projects, eq(occurrences.projectId, projects.id))
+    .where(eq(occurrences.companyId, scope.companyId))
     .orderBy(desc(occurrences.createdAt));
 
   const evidenceRows = await db
@@ -130,7 +149,8 @@ export async function listOccurrences(): Promise<OccurrenceView[]> {
       occurrenceId: evidences.occurrenceId,
       objectKey: evidences.objectKey,
     })
-    .from(evidences);
+    .from(evidences)
+    .where(eq(evidences.companyId, scope.companyId));
 
   const complianceRows = await db
     .select({
@@ -142,7 +162,8 @@ export async function listOccurrences(): Promise<OccurrenceView[]> {
       engineerNote: complianceChecks.engineerNote,
       updatedAt: complianceChecks.updatedAt,
     })
-    .from(complianceChecks);
+    .from(complianceChecks)
+    .where(eq(complianceChecks.companyId, scope.companyId));
 
   return rows.map((row) => {
     const matchingEvidence = evidenceRows.filter(
@@ -162,7 +183,7 @@ export async function listOccurrences(): Promise<OccurrenceView[]> {
   });
 }
 
-export async function listProjects(): Promise<ProjectView[]> {
+export async function listProjects(scope: TenantScope): Promise<ProjectView[]> {
   await ensureDatabase();
   const db = getDb();
   const projectRows = await db
@@ -179,14 +200,16 @@ export async function listProjects(): Promise<ProjectView[]> {
       baselineUpdatedAt: projectBaselines.updatedAt,
     })
     .from(projects)
-    .leftJoin(projectBaselines, eq(projects.id, projectBaselines.projectId));
+    .leftJoin(projectBaselines, eq(projects.id, projectBaselines.projectId))
+    .where(eq(projects.companyId, scope.companyId));
   const occurrenceRows = await db
     .select({
       projectId: occurrences.projectId,
       status: occurrences.status,
       severity: occurrences.severity,
     })
-    .from(occurrences);
+    .from(occurrences)
+    .where(eq(occurrences.companyId, scope.companyId));
 
   return projectRows.map((project) => {
     const projectOccurrences = occurrenceRows.filter(
@@ -206,7 +229,18 @@ export async function listProjects(): Promise<ProjectView[]> {
   });
 }
 
+export async function countProjects(scope: TenantScope): Promise<number> {
+  await ensureDatabase();
+  const db = getDb();
+  const rows = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(eq(projects.companyId, scope.companyId));
+  return rows.length;
+}
+
 export async function updateProjectBaseline(
+  scope: TenantScope,
   projectId: string,
   input: {
     pilotStartedAt: string;
@@ -220,7 +254,9 @@ export async function updateProjectBaseline(
   const projectRows = await db
     .select({ id: projects.id })
     .from(projects)
-    .where(eq(projects.id, projectId))
+    .where(
+      and(eq(projects.id, projectId), eq(projects.companyId, scope.companyId)),
+    )
     .limit(1);
 
   if (!projectRows[0]) throw new Error('Obra não encontrada.');
@@ -230,6 +266,7 @@ export async function updateProjectBaseline(
     .insert(projectBaselines)
     .values({
       projectId,
+      companyId: scope.companyId,
       pilotStartedAt: input.pilotStartedAt,
       currentStage: input.currentStage,
       summary: input.summary,
@@ -250,6 +287,7 @@ export async function updateProjectBaseline(
 
   await db.insert(projectEvents).values({
     id: crypto.randomUUID(),
+    companyId: scope.companyId,
     projectId,
     actor: 'Equipe de engenharia',
     action: 'project.baseline.updated',
@@ -258,7 +296,9 @@ export async function updateProjectBaseline(
   });
 }
 
-export async function listProjectUpdates(): Promise<ProjectUpdateView[]> {
+export async function listProjectUpdates(
+  scope: TenantScope,
+): Promise<ProjectUpdateView[]> {
   await ensureDatabase();
   const db = getDb();
   const rows = await db
@@ -279,6 +319,7 @@ export async function listProjectUpdates(): Promise<ProjectUpdateView[]> {
     .from(whatsappMessages)
     .leftJoin(occurrences, eq(whatsappMessages.occurrenceId, occurrences.id))
     .leftJoin(projects, eq(occurrences.projectId, projects.id))
+    .where(eq(whatsappMessages.companyId, scope.companyId))
     .orderBy(desc(whatsappMessages.createdAt));
 
   const evidenceRows = await db
@@ -287,7 +328,8 @@ export async function listProjectUpdates(): Promise<ProjectUpdateView[]> {
       occurrenceId: evidences.occurrenceId,
       objectKey: evidences.objectKey,
     })
-    .from(evidences);
+    .from(evidences)
+    .where(eq(evidences.companyId, scope.companyId));
 
   return rows.map((row) => {
     const storedEvidence = evidenceRows.find(
@@ -315,7 +357,9 @@ export async function listProjectUpdates(): Promise<ProjectUpdateView[]> {
   });
 }
 
-export async function listProjectHistory(): Promise<ProjectHistoryItemView[]> {
+export async function listProjectHistory(
+  scope: TenantScope,
+): Promise<ProjectHistoryItemView[]> {
   await ensureDatabase();
   const db = getDb();
   const occurrenceRows = await db
@@ -329,7 +373,8 @@ export async function listProjectHistory(): Promise<ProjectHistoryItemView[]> {
       createdAt: occurrences.createdAt,
     })
     .from(occurrences)
-    .leftJoin(projects, eq(occurrences.projectId, projects.id));
+    .leftJoin(projects, eq(occurrences.projectId, projects.id))
+    .where(eq(occurrences.companyId, scope.companyId));
   const auditRows = await db
     .select({
       id: auditEvents.id,
@@ -345,7 +390,8 @@ export async function listProjectHistory(): Promise<ProjectHistoryItemView[]> {
     })
     .from(auditEvents)
     .innerJoin(occurrences, eq(auditEvents.occurrenceId, occurrences.id))
-    .leftJoin(projects, eq(occurrences.projectId, projects.id));
+    .leftJoin(projects, eq(occurrences.projectId, projects.id))
+    .where(eq(auditEvents.companyId, scope.companyId));
   const projectEventRows = await db
     .select({
       id: projectEvents.id,
@@ -357,7 +403,8 @@ export async function listProjectHistory(): Promise<ProjectHistoryItemView[]> {
       createdAt: projectEvents.createdAt,
     })
     .from(projectEvents)
-    .innerJoin(projects, eq(projectEvents.projectId, projects.id));
+    .innerJoin(projects, eq(projectEvents.projectId, projects.id))
+    .where(eq(projectEvents.companyId, scope.companyId));
 
   const occurrenceItems: ProjectHistoryItemView[] = occurrenceRows.map(
     (row) => ({
@@ -413,22 +460,31 @@ export async function listProjectHistory(): Promise<ProjectHistoryItemView[]> {
   );
 }
 
-export async function getEvidenceObjectKey(id: string) {
+export async function getEvidenceObjectKey(scope: TenantScope, id: string) {
   await ensureDatabase();
   const db = getDb();
   const rows = await db
     .select({ objectKey: evidences.objectKey })
     .from(evidences)
-    .where(eq(evidences.id, id))
+    .where(and(eq(evidences.id, id), eq(evidences.companyId, scope.companyId)))
     .limit(1);
   return rows[0]?.objectKey ?? null;
 }
 
+/**
+ * The one write whose tenant is resolved from data instead of a session. The
+ * sender's phone number decides the company, and an unmatched number lands in
+ * the quarantine tenant rather than in someone's history.
+ */
 export async function createOccurrenceFromWhatsApp(input: InboundOccurrence) {
   await ensureDatabase();
   const db = getDb();
   const existing = await db
-    .select({ id: occurrences.id, code: occurrences.code })
+    .select({
+      id: occurrences.id,
+      code: occurrences.code,
+      companyId: occurrences.companyId,
+    })
     .from(occurrences)
     .where(eq(occurrences.sourceMessageId, input.messageId))
     .limit(1);
@@ -459,6 +515,7 @@ export async function createOccurrenceFromWhatsApp(input: InboundOccurrence) {
     .limit(1);
 
   const assignment = assignmentRows[0];
+  const companyId = assignment?.companyId ?? UNASSIGNED_COMPANY_ID;
   const classification = classifyOccurrence(input.text);
   const id = crypto.randomUUID();
   const code = createOccurrenceCode();
@@ -469,7 +526,7 @@ export async function createOccurrenceFromWhatsApp(input: InboundOccurrence) {
   await db.insert(occurrences).values({
     id,
     code,
-    companyId: assignment?.companyId ?? 'company-demo',
+    companyId,
     projectId: assignment?.projectId ?? null,
     reporterPhone: input.phoneE164,
     reporterName,
@@ -491,6 +548,7 @@ export async function createOccurrenceFromWhatsApp(input: InboundOccurrence) {
     await db.insert(complianceChecks).values(
       classification.complianceChecks.map((check) => ({
         id: crypto.randomUUID(),
+        companyId,
         occurrenceId: id,
         standardCode: check.standardCode,
         requirement: check.requirement,
@@ -503,6 +561,7 @@ export async function createOccurrenceFromWhatsApp(input: InboundOccurrence) {
 
   await db.insert(whatsappMessages).values({
     id: input.messageId,
+    companyId,
     occurrenceId: id,
     phoneE164: input.phoneE164,
     direction: 'inbound',
@@ -515,12 +574,13 @@ export async function createOccurrenceFromWhatsApp(input: InboundOccurrence) {
 
   await db.insert(auditEvents).values({
     id: crypto.randomUUID(),
+    companyId,
     occurrenceId: id,
     actor: 'whatsapp-webhook',
     action: 'occurrence.created',
     detail: assignment
       ? 'Telefone vinculado automaticamente à obra.'
-      : 'Telefone sem vínculo de obra.',
+      : 'Telefone sem vínculo de obra. Ocorrência retida fora dos dados de clientes.',
     createdAt: now,
   });
 
@@ -528,11 +588,13 @@ export async function createOccurrenceFromWhatsApp(input: InboundOccurrence) {
     id,
     code,
     created: true,
+    companyId,
     projectName: assignment?.projectName ?? null,
   };
 }
 
 export async function addEvidence(input: {
+  companyId: string;
   occurrenceId: string;
   objectKey: string | null;
   providerMediaId: string;
@@ -543,6 +605,7 @@ export async function addEvidence(input: {
   const db = getDb();
   await db.insert(evidences).values({
     id: crypto.randomUUID(),
+    companyId: input.companyId,
     occurrenceId: input.occurrenceId,
     type: 'image',
     objectKey: input.objectKey,
@@ -554,6 +617,7 @@ export async function addEvidence(input: {
 }
 
 export async function recordOutboundMessage(input: {
+  companyId: string;
   phoneE164: string;
   occurrenceId: string;
   body: string;
@@ -564,6 +628,7 @@ export async function recordOutboundMessage(input: {
   const db = getDb();
   await db.insert(whatsappMessages).values({
     id: input.providerMessageId ?? crypto.randomUUID(),
+    companyId: input.companyId,
     occurrenceId: input.occurrenceId,
     phoneE164: input.phoneE164,
     direction: 'outbound',
@@ -575,7 +640,11 @@ export async function recordOutboundMessage(input: {
   });
 }
 
-export async function updateOccurrenceStatus(id: string, status: string) {
+export async function updateOccurrenceStatus(
+  scope: TenantScope,
+  id: string,
+  status: string,
+) {
   await ensureDatabase();
   const db = getDb();
   const allowed = new Set(['new', 'in_progress', 'validation', 'closed']);
@@ -584,22 +653,37 @@ export async function updateOccurrenceStatus(id: string, status: string) {
     throw new Error('Status inválido.');
   }
 
+  const rows = await db
+    .select({ id: occurrences.id })
+    .from(occurrences)
+    .where(
+      and(eq(occurrences.id, id), eq(occurrences.companyId, scope.companyId)),
+    )
+    .limit(1);
+
+  if (!rows[0]) throw new Error('Ocorrência não encontrada.');
+
+  const now = new Date().toISOString();
   await db
     .update(occurrences)
-    .set({ status, updatedAt: new Date().toISOString() })
-    .where(eq(occurrences.id, id));
+    .set({ status, updatedAt: now })
+    .where(
+      and(eq(occurrences.id, id), eq(occurrences.companyId, scope.companyId)),
+    );
 
   await db.insert(auditEvents).values({
     id: crypto.randomUUID(),
+    companyId: scope.companyId,
     occurrenceId: id,
     actor: 'dashboard-user',
     action: `occurrence.status.${status}`,
     detail: null,
-    createdAt: new Date().toISOString(),
+    createdAt: now,
   });
 }
 
 export async function updateComplianceCheck(
+  scope: TenantScope,
   id: string,
   status: string,
   engineerNote?: string,
@@ -620,7 +704,12 @@ export async function updateComplianceCheck(
   const rows = await db
     .select({ occurrenceId: complianceChecks.occurrenceId })
     .from(complianceChecks)
-    .where(eq(complianceChecks.id, id))
+    .where(
+      and(
+        eq(complianceChecks.id, id),
+        eq(complianceChecks.companyId, scope.companyId),
+      ),
+    )
     .limit(1);
   const check = rows[0];
 
@@ -636,16 +725,27 @@ export async function updateComplianceCheck(
       engineerNote: engineerNote?.trim() || null,
       updatedAt: now,
     })
-    .where(eq(complianceChecks.id, id));
+    .where(
+      and(
+        eq(complianceChecks.id, id),
+        eq(complianceChecks.companyId, scope.companyId),
+      ),
+    );
 
   await db.insert(auditEvents).values({
     id: crypto.randomUUID(),
+    companyId: scope.companyId,
     occurrenceId: check.occurrenceId,
     actor: 'dashboard-engineer',
     action: `compliance.${status}`,
     detail: engineerNote?.trim() || null,
     createdAt: now,
   });
+}
+
+/** Claims the seeded demo tenant. Local development only. */
+export function isDemoCompany(companyId: string) {
+  return companyId === DEMO_COMPANY_ID;
 }
 
 function getAuditEventCopy(action: string): {

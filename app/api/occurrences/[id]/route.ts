@@ -1,11 +1,12 @@
-import { getChatGPTUser } from '@/app/chatgpt-auth';
 import { updateComplianceCheck, updateOccurrenceStatus } from '@/db/repository';
+import { getTenantScope } from '@/lib/tenant';
 
 export async function PATCH(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
-  if (!(await getChatGPTUser())) {
+  const scope = await getTenantScope();
+  if (!scope) {
     return Response.json({ error: 'Não autorizado.' }, { status: 401 });
   }
 
@@ -20,12 +21,13 @@ export async function PATCH(
 
     if (body.complianceCheckId) {
       await updateComplianceCheck(
+        scope,
         body.complianceCheckId,
         body.complianceStatus ?? '',
         body.engineerNote,
       );
     } else {
-      await updateOccurrenceStatus(id, body.status ?? '');
+      await updateOccurrenceStatus(scope, id, body.status ?? '');
     }
     return Response.json({ ok: true });
   } catch (error) {

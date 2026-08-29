@@ -5,6 +5,7 @@ import Image from 'next/image';
 import {
   AudioLines,
   BookOpenCheck,
+  Brain,
   BriefcaseBusiness,
   Building2,
   Camera,
@@ -30,6 +31,8 @@ import {
   TrendingUp,
   X,
 } from 'lucide-react';
+import MemoryPanel from '@/components/memory-panel';
+import PrecedentCard from '@/components/precedent-card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -60,6 +63,7 @@ type View =
   | 'occurrences'
   | 'projects'
   | 'compliance'
+  | 'memory'
   | 'updates'
   | 'whatsapp';
 type ComplianceFilter = 'action' | 'critical' | 'pbqph' | 'nbr' | 'all';
@@ -572,6 +576,7 @@ export default function Dashboard() {
               updates={filteredUpdates}
             />
           )}
+          {activeView === 'memory' && <MemoryPanel />}
           {activeView === 'whatsapp' && (
             <WhatsAppView
               integration={integration}
@@ -1281,6 +1286,8 @@ function OccurrenceDetail({
                 </p>
               </div>
             )}
+
+            <PrecedentCard key={selected.id} occurrenceId={selected.id} />
 
             {selected.complianceChecks.length > 0 && (
               <div className="space-y-3 rounded-lg border p-3">
@@ -2648,6 +2655,11 @@ function getNavItems(role: Role) {
         icon: <BookOpenCheck />,
       },
       {
+        view: 'memory' as View,
+        label: 'Memória',
+        icon: <Brain />,
+      },
+      {
         view: 'updates' as View,
         label: 'Histórico',
         icon: <History />,
@@ -2674,6 +2686,11 @@ function getNavItems(role: Role) {
       view: 'compliance' as View,
       label: 'Conformidade',
       icon: <BookOpenCheck />,
+    },
+    {
+      view: 'memory' as View,
+      label: 'Memória',
+      icon: <Brain />,
     },
     {
       view: 'updates' as View,

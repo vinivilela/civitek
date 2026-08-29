@@ -43,7 +43,10 @@ type ParsedMessage = {
   } | null;
 };
 
-export async function verifyWebhookSignature(body: string, signature: string | null) {
+export async function verifyWebhookSignature(
+  body: string,
+  signature: string | null,
+) {
   const secret = process.env.WHATSAPP_APP_SECRET;
   if (!secret || !signature?.startsWith('sha256=')) return false;
 
@@ -86,8 +89,13 @@ export async function processWhatsAppPayload(payload: unknown) {
     }
 
     if (message.image) {
-      const stored = await storeWhatsAppImage(occurrence.id, message.image);
+      const stored = await storeWhatsAppImage(
+        occurrence.companyId,
+        occurrence.id,
+        message.image,
+      );
       await addEvidence({
+        companyId: occurrence.companyId,
         occurrenceId: occurrence.id,
         objectKey: stored.objectKey,
         providerMediaId: message.image.id,
@@ -102,6 +110,7 @@ export async function processWhatsAppPayload(payload: unknown) {
     const delivery = await sendTextMessage(message.from, acknowledgement);
 
     await recordOutboundMessage({
+      companyId: occurrence.companyId,
       phoneE164: message.from,
       occurrenceId: occurrence.id,
       body: acknowledgement,
@@ -160,6 +169,7 @@ function parseMessages(payload: unknown): ParsedMessage[] {
 }
 
 async function storeWhatsAppImage(
+  companyId: string,
   occurrenceId: string,
   image: NonNullable<ParsedMessage['image']>,
 ) {
@@ -184,18 +194,27 @@ async function storeWhatsAppImage(
       mime_type?: string;
     };
     if (!metadata.url) {
-      return { objectKey: null, mimeType: metadata.mime_type ?? image.mimeType };
+      return {
+        objectKey: null,
+        mimeType: metadata.mime_type ?? image.mimeType,
+      };
     }
 
     const mediaResponse = await fetch(metadata.url, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (!mediaResponse.ok || !mediaResponse.body) {
-      return { objectKey: null, mimeType: metadata.mime_type ?? image.mimeType };
+      return {
+        objectKey: null,
+        mimeType: metadata.mime_type ?? image.mimeType,
+      };
     }
 
-    const mimeType = metadata.mime_type ?? image.mimeType ?? 'application/octet-stream';
-    const objectKey = `occurrences/${occurrenceId}/${image.id}.${extensionFor(mimeType)}`;
+    const mimeType =
+      metadata.mime_type ?? image.mimeType ?? 'application/octet-stream';
+    // Tenant first in the key so an object can never be reached by guessing an
+    // id from another company.
+    const objectKey = `${companyId}/occurrences/${occurrenceId}/${image.id}.${extensionFor(mimeType)}`;
     await env.FILES.put(objectKey, mediaResponse.body, {
       httpMetadata: { contentType: mimeType },
     });
